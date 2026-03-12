@@ -42,7 +42,8 @@ class Camerad:
     self.vipc_server.start_listener()
 
   def _send_yuv(self, yuv, frame_id, pub_type, yuv_type):
-    eof = int(frame_id * 0.05 * 1e9)
+    fps = max(1.0, float(next((cam.fps for cam in self.cameras if cam.cam_type_state == pub_type), 20.0)))
+    eof = int(frame_id * (1.0 / fps) * 1e9)
     self.vipc_server.send(yuv_type, yuv, frame_id, eof, eof)
     dat = messaging.new_message(pub_type, valid=True)
     msg = {
@@ -55,7 +56,7 @@ class Camerad:
     self.pm.send(pub_type, dat)
 
   def camera_runner(self, cam):
-    rk = Ratekeeper(20, None)
+    rk = Ratekeeper(max(1.0, float(cam.fps)), None)
     interval_start = time.monotonic()
     frame_count = 0
     sums = {

@@ -84,8 +84,10 @@ v4l2-ctl -d /dev/video0 --set-parm=${ROAD_FPS} || true
 # Disable autofocus (Logitech BRIO only)
 v4l2-ctl -d /dev/video0 --set-ctrl=focus_automatic_continuous=0 || true
 
-v4l2-ctl -d /dev/video4 --set-fmt-video=width=${DRIVER_W},height=${DRIVER_H},pixelformat=${DRIVER_FOURCC} || true
-v4l2-ctl -d /dev/video4 --set-parm=${DRIVER_FPS} || true
+if [ -n "${DRIVER_CAM:-}" ] && [ -e "/dev/video${DRIVER_CAM}" ]; then
+  v4l2-ctl -d "/dev/video${DRIVER_CAM}" --set-fmt-video=width=${DRIVER_W},height=${DRIVER_H},pixelformat=${DRIVER_FOURCC} || true
+  v4l2-ctl -d "/dev/video${DRIVER_CAM}" --set-parm=${DRIVER_FPS} || true
+fi
 
 cd system/manager
 ./manager.py

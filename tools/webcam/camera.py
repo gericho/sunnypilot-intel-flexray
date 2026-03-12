@@ -22,15 +22,17 @@ class Camera:
     if cam_type_state == "driverCameraState":
       w = float(os.getenv("DRIVER_W", "1280"))
       h = float(os.getenv("DRIVER_H", "720"))
-      fps = float(os.getenv("DRIVER_FPS", "25"))
+      fps = float(os.getenv("DRIVER_FPS", "20"))
     elif cam_type_state == "wideRoadCameraState":
       w = float(os.getenv("WIDE_W", os.getenv("ROAD_W", "1280")))
       h = float(os.getenv("WIDE_H", os.getenv("ROAD_H", "720")))
-      fps = float(os.getenv("WIDE_FPS", os.getenv("ROAD_FPS", "25")))
+      fps = float(os.getenv("WIDE_FPS", os.getenv("ROAD_FPS", "20")))
     else:
       w = float(os.getenv("ROAD_W", "1280"))
       h = float(os.getenv("ROAD_H", "720"))
-      fps = float(os.getenv("ROAD_FPS", "25"))
+      fps = float(os.getenv("ROAD_FPS", "20"))
+
+    self.fps = fps
 
     self.cap.set(cv.CAP_PROP_FRAME_WIDTH, w)
     self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, h)
