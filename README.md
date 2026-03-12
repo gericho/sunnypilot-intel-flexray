@@ -1,12 +1,5 @@
 ![](https://user-images.githubusercontent.com/47793918/233812617-beab2e71-57b9-479e-8bff-c3931347ca40.png)
 
-> **Note:** This is a fork of sunnypilot with FlexRay support via [pico-flexray](https://github.com/dynm/pico-flexray/).
->
-> **Install URL:** https://install.pico-flexray.xyz
->
-> **Currently Supported Vehicles:**
-> - BMW with SP2018 Architecture with option Driving Assistant Pro (5AU)
-
 ## Technical Delta Summary
 > **Status:** Work in progress. This fork should currently be considered **broken**.
 
