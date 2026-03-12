@@ -99,7 +99,7 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
       if (do_exit) break;
 
       // do rotation if required
-      const int frames_per_seg = SEGMENT_LENGTH * MAIN_FPS;
+      const int frames_per_seg = SEGMENT_LENGTH * cam_info.fps;
       if (cur_seg >= 0 && extra.frame_id >= ((cur_seg + 1) * frames_per_seg) + s->start_frame_id) {
         for (auto &e : encoders) {
           e->encoder_close();

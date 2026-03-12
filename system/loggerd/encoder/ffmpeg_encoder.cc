@@ -132,6 +132,14 @@ void FfmpegEncoder::encoder_open() {
     }
   } else {
     this->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    auto qcam_settings = encoder_info.get_settings(in_width);
+    this->codec_ctx->max_b_frames = qcam_settings.b_frames;
+    this->codec_ctx->gop_size = qcam_settings.gop_size;
+    this->codec_ctx->bit_rate = qcam_settings.bitrate;
+    this->codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+
+    av_opt_set(this->codec_ctx->priv_data, "preset", getenv_str("QCAMERA_X264_PRESET", "ultrafast"), 0);
+    av_opt_set(this->codec_ctx->priv_data, "tune", getenv_str("QCAMERA_X264_TUNE", "zerolatency"), 0);
   }
 
   err = avcodec_open2(this->codec_ctx, codec, NULL);
@@ -275,7 +283,9 @@ int FfmpegEncoder::encode_frame(VisionBuf* buf, VisionIpcBufExtra *extra) {
     frame->data[1] = cu;
     frame->data[2] = cv;
   }
-  frame->pts = counter*50*1000; // 50ms per frame
+  // PTS is expressed in codec_ctx->time_base units (1/fps). Using the frame
+  // index keeps monotonic timestamps and avoids mpegts timestamp regressions.
+  frame->pts = counter;
 
   int ret = counter;
 

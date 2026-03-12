@@ -13,7 +13,14 @@
 
 #include "system/loggerd/logger.h"
 
-constexpr int MAIN_FPS = 20;
+inline int get_main_fps() {
+  static int fps = []() {
+    const char *v = getenv("ROAD_FPS");
+    const int parsed = (v != nullptr && v[0] != '\0') ? atoi(v) : 20;
+    return parsed > 0 ? parsed : 20;
+  }();
+  return fps;
+}
 //const auto MAIN_ENCODE_TYPE = Hardware::PC() ? cereal::EncodeIndex::Type::BIG_BOX_LOSSLESS : cereal::EncodeIndex::Type::FULL_H_E_V_C;
 const auto MAIN_ENCODE_TYPE = cereal::EncodeIndex::Type::FULL_H_E_V_C;
 
@@ -37,15 +44,17 @@ struct EncoderSettings {
   int b_frames = 0; // we don't use b frames
 
   static EncoderSettings MainEncoderSettings(int in_width) {
+    const int fps = get_main_fps();
     if (in_width <= 1344) {
-      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = 5'000'000, .gop_size = 20};
+      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = 5'000'000, .gop_size = fps};
     } else {
-      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = 10'000'000, .gop_size = 30};
+      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = 10'000'000, .gop_size = fps};
     }
   }
 
   static EncoderSettings QcamEncoderSettings() {
-    return EncoderSettings{.encode_type = cereal::EncodeIndex::Type::QCAMERA_H264, .bitrate = 256'000, .gop_size = 15};
+    const int fps = get_main_fps();
+    return EncoderSettings{.encode_type = cereal::EncodeIndex::Type::QCAMERA_H264, .bitrate = 256'000, .gop_size = fps};
   }
 
   static EncoderSettings StreamEncoderSettings() {
@@ -63,7 +72,7 @@ public:
   bool include_audio = false;
   int frame_width = -1;
   int frame_height = -1;
-  int fps = MAIN_FPS;
+  int fps = get_main_fps();
   std::function<EncoderSettings(int)> get_settings;
 
   ::cereal::EncodeData::Reader (cereal::Event::Reader::*get_encode_data_func)() const;
@@ -74,7 +83,7 @@ public:
 class LogCameraInfo {
 public:
   const char *thread_name;
-  int fps = MAIN_FPS;
+  int fps = get_main_fps();
   VisionStreamType stream_type;
   std::vector<EncoderInfo> encoder_infos;
 };
@@ -130,7 +139,7 @@ const EncoderInfo qcam_encoder_info = {
   .get_settings = [](int){return EncoderSettings::QcamEncoderSettings();},
   .frame_width = 526,
   .frame_height = 330,
-  .include_audio = Params().getBool("RecordAudio"),
+  .include_audio = false,
   INIT_ENCODE_FUNCTIONS(QRoadEncode),
 };
 

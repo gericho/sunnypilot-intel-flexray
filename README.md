@@ -1,3 +1,5 @@
+# sunnypilot BMW i3 FlexRay (PC/OpenCL Build)
+
 ![](https://user-images.githubusercontent.com/47793918/233812617-beab2e71-57b9-479e-8bff-c3931347ca40.png)
 
 ## Technical Delta Summary
@@ -12,7 +14,7 @@
 7. Added webcam runtime profiling (FPS plus per-stage timing).
 8. Updated logger/encoder flow for HEVC/NV12 on the PC test setup.
 9. Adjusted `modeld`/`dmonitoringmodeld` and `manager` integration for this workflow.
-10. Enabled OpenCL model execution via `DEV=CL` (CPU fallback when unavailable).
+10. Enforced OpenCL model execution via `DEV=CL` (no CPU fallback).
 
 CPU used for local validation: Intel Core i5-7200U (4 vCPU, x86_64).
 

@@ -9,6 +9,14 @@ export BIG=1 # set comma3X layout instead of comma4
 export SCALE=0.4
 #export NO_DM=1 # disable driver camera check
 
+# Force OpenCL to Intel iGPU ICD only.
+# tinygrad CL runtime picks the first platform, so excluding POCL/rusticl
+# prevents accidental CPU OpenCL fallback.
+OPENCL_ICD_DIR="/tmp/opencl-intel-icd"
+mkdir -p "${OPENCL_ICD_DIR}"
+cp /etc/OpenCL/vendors/intel.icd "${OPENCL_ICD_DIR}/intel.icd"
+export OCL_ICD_VENDORS="${OPENCL_ICD_DIR}"
+
 # Options: 0 = enabled, 1 = disabled
 export DISABLE_MODELD=0
 export DISABLE_BOOTLOG=1
@@ -22,7 +30,7 @@ export HEVC_VAAPI_ASYNC_DEPTH=4
 #  0 = vertical flip
 #  1 = horizontal flip
 #  none = no flip
-export WEBCAM_FLIP=-1
+export WEBCAM_FLIP=none
 
 # PC/webcam mode
 export FORCE_ONROAD=1
@@ -49,7 +57,7 @@ export ROAD_CAM=0
 # Road camera parameters
 export ROAD_W=1280
 export ROAD_H=720
-export ROAD_FPS=20
+export ROAD_FPS=10
 export ROAD_FOURCC=NV12 # YUYV NV12 MJPG
 
 # Driver camera parameters
