@@ -8,6 +8,8 @@
 > - BMW with SP2018 Architecture with option Driving Assistant Pro (5AU)
 
 ## Technical Delta Summary
+> **Status:** Work in progress. This fork should currently be considered **broken**.
+
 1. Added BMW i3 support in `opendbc` with a dedicated DBC and platform registration.
 2. Integrated FlexRay-related Panda communication/safety changes.
 3. Added FlexRay support in Cabana for signal decoding/inspection.
