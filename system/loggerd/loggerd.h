@@ -14,7 +14,9 @@
 #include "system/loggerd/logger.h"
 
 constexpr int MAIN_FPS = 20;
-const auto MAIN_ENCODE_TYPE = Hardware::PC() ? cereal::EncodeIndex::Type::BIG_BOX_LOSSLESS : cereal::EncodeIndex::Type::FULL_H_E_V_C;
+//const auto MAIN_ENCODE_TYPE = Hardware::PC() ? cereal::EncodeIndex::Type::BIG_BOX_LOSSLESS : cereal::EncodeIndex::Type::FULL_H_E_V_C;
+const auto MAIN_ENCODE_TYPE = cereal::EncodeIndex::Type::FULL_H_E_V_C;
+
 #define NO_CAMERA_PATIENCE 500  // fall back to time-based rotation if all cameras are dead
 
 #define INIT_ENCODE_FUNCTIONS(encode_type)                                \

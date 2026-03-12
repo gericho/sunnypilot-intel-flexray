@@ -24,7 +24,9 @@ from openpilot.system.hardware import PC
 
 
 def manager_init() -> None:
-  save_bootlog()
+  #save_bootlog()
+  if os.getenv("DISABLE_BOOTLOG") != "1":
+    save_bootlog()
 
   build_metadata = get_build_metadata()
 
