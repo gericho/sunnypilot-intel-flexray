@@ -7,6 +7,20 @@
 > **Currently Supported Vehicles:**
 > - BMW with SP2018 Architecture with option Driving Assistant Pro (5AU)
 
+## Technical Delta Summary
+1. Added BMW i3 support in `opendbc` with a dedicated DBC and platform registration.
+2. Integrated FlexRay-related Panda communication/safety changes.
+3. Added FlexRay support in Cabana for signal decoding/inspection.
+4. Extracted `selfdrive/pandad` as a standalone submodule in this tree.
+5. Updated core submodule pointers (`opendbc`, `panda/pandad`) to match this port.
+6. Optimized the webcam path (capture, NV12 conversion, frame publishing).
+7. Added webcam runtime profiling (FPS plus per-stage timing).
+8. Updated logger/encoder flow for HEVC/NV12 on the PC test setup.
+9. Adjusted `modeld`/`dmonitoringmodeld` and `manager` integration for this workflow.
+10. Enabled OpenCL model execution via `DEV=CL` (CPU fallback when unavailable).
+
+CPU used for local validation: Intel Core i5-7200U (4 vCPU, x86_64).
+
 ## 🌞 What is sunnypilot?
 [sunnypilot](https://github.com/sunnyhaibin/sunnypilot) is a fork of comma.ai's openpilot, an open source driver assistance system. sunnypilot offers the user a unique driving experience for over 300+ supported car makes and models with modified behaviors of driving assist engagements. sunnypilot complies with comma.ai's safety rules as accurately as possible.
 
