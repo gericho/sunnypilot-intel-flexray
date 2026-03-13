@@ -5,8 +5,6 @@
 ## Technical Delta Summary
 > **Status:** Work in progress. This fork should currently be considered **Bʀᴏᴋᴇɴ**.
 
-This project is based in part on CzokNorris's FlexRay work and the CzokNorris V1 board design.
-
 1. Added BMW i3 support in `opendbc` with a dedicated DBC and platform registration.
 2. Integrated FlexRay-related Panda communication/safety changes and Cabana decoding support.
 3. Enabled Intel hardware video encoding for PC testing (`hevc_vaapi` / `h264_vaapi`) with explicit runtime fallback paths.
@@ -29,6 +27,10 @@ This project is based in part on CzokNorris's FlexRay work and the CzokNorris V1
 - `FR3` (`U9`) is the vehicle-side transceiver: `TXD GPIO10`, `TXEN GPIO9`, `RXD GPIO8`.
 - `FR4` (`U10`) is the ECU-side transceiver: `TXD GPIO16`, `TXEN GPIO22`, `RXD GPIO21`.
 - In the dual-channel firmware, `src 24` means `FR2 + FR4` and `src 23` means `FR2 + FR3`.
+
+## Credits
+- CzokNorris: this project builds on CzokNorris's FlexRay reverse-engineering work and the V1 board design. Board reference: `https://oshwlab.com/czoknorris/v1board`
+- Dynm: FlexRay firmware foundation and related pico-flexray work. Repository: `https://github.com/dynm/pico-flexray`
 
 ## Tested Hardware
 - CPU: Intel Core i5-7200U (4 vCPU, x86_64)
