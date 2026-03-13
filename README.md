@@ -6,15 +6,15 @@
 > **Status:** Work in progress. This fork should currently be considered **broken**.
 
 1. Added BMW i3 support in `opendbc` with a dedicated DBC and platform registration.
-2. Integrated FlexRay-related Panda communication/safety changes.
-3. Added FlexRay support in Cabana for signal decoding/inspection.
-4. Extracted `selfdrive/pandad` as a standalone submodule in this tree.
-5. Updated core submodule pointers (`opendbc`, `panda/pandad`) to match this port.
-6. Optimized the webcam path (capture, NV12 conversion, frame publishing).
-7. Added webcam runtime profiling (FPS plus per-stage timing).
-8. Updated logger/encoder flow for HEVC/NV12 on the PC test setup.
-9. Adjusted `modeld`/`dmonitoringmodeld` and `manager` integration for this workflow.
-10. Enforced OpenCL model execution via `DEV=CL` (no CPU fallback).
+2. Integrated FlexRay-related Panda communication/safety changes and Cabana decoding support.
+3. Enabled Intel hardware video encoding for PC testing (`hevc_vaapi` / `h264_vaapi`) with explicit runtime fallback paths.
+4. Reworked FFmpeg encoder handling for NV12/VAAPI and added safer software fallback behavior for unsupported cases.
+5. Aligned logger segmentation with runtime camera FPS (`ROAD_FPS`) to improve route/segment timing consistency.
+6. Added dedicated qcamera tuning knobs (`QCAM_FPS`, `QCAM_BITRATE`) to reduce encoder/queue pressure on low-power CPUs.
+7. Optimized the webcam pipeline with a raw NV12 fast path (`WEBCAM_RAW_NV12`) and camera FOURCC control from env.
+8. Added robust webcam format handling (including YUYV fallback conversion) and runtime stage profiling output.
+9. Switched webcam publish timing to monotonic nanosecond timestamps for improved playback/signal synchronization.
+10. Enforced Intel OpenCL execution for models (`DEV=CL` + Intel ICD-only `OCL_ICD_VENDORS`) to avoid CPU OpenCL fallback.
 
 CPU used for local validation: Intel Core i5-7200U (4 vCPU, x86_64).
 
