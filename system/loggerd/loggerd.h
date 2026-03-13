@@ -40,10 +40,11 @@ struct EncoderSettings {
   int b_frames = 0; // we don't use b frames
 
   static EncoderSettings MainEncoderSettings(int in_width) {
+    const int gop = std::max(1, ROAD_FPS);
     if (in_width <= 1344) {
-      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = ROAD_MAIN_BITRATE_LOW, .gop_size = 20};
+      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = ROAD_MAIN_BITRATE_LOW, .gop_size = gop};
     } else {
-      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = ROAD_MAIN_BITRATE_HIGH, .gop_size = 30};
+      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = ROAD_MAIN_BITRATE_HIGH, .gop_size = gop};
     }
   }
 
@@ -143,7 +144,7 @@ const LogCameraInfo road_camera_info{
   .thread_name = "road_cam_encoder",
   .fps = ROAD_FPS,
   .stream_type = VISION_STREAM_ROAD,
-  .encoder_infos = {main_road_encoder_info, qcam_encoder_info}
+  .encoder_infos = {main_road_encoder_info}
 };
 
 const LogCameraInfo wide_road_camera_info{

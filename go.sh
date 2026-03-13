@@ -20,13 +20,20 @@ export OCL_ICD_VENDORS="${OPENCL_ICD_DIR}"
 # Options: 0 = enabled, 1 = disabled
 export DISABLE_MODELD=1
 export DISABLE_BOOTLOG=1
+export DISABLE_QCAMERA=1
+# Log-only profile (recommended for route capture on PC):
+# blocks driving stack processes that are not needed for CAN+video logging.
+export LOG_ONLY_MODE=1
 export DEV=CL
 export HEVC_VAAPI_ASYNC_DEPTH=4
 export HEVC_ENCODER=vaapi
-export QCAMERA_ENCODER=vaapi
+# Use software H264 for qcamera (QSV probe on this host falls back anyway).
+# Accepted values: auto | vaapi | qsv | cpu
+export QCAMERA_ENCODER=cpu
 export VAAPI_DEVICE=/dev/dri/renderD128
-export ROAD_MAIN_BITRATE_LOW=3500000
-export ROAD_MAIN_BITRATE_HIGH=6000000
+export ROAD_MAIN_BITRATE_LOW=2500000
+export ROAD_MAIN_BITRATE_HIGH=3500000
+export LOGGERD_ENCODER_QUEUE_LIMIT=1200
 export QCAM_BITRATE=120000
 export QCAM_FPS=5
 export WEBCAM_RAW_NV12=1
@@ -58,6 +65,13 @@ export PYTHONPATH="$PWD"
 export WEBCAM_PROFILE=1
 export WEBCAM_PROFILE_INTERVAL=5
 
+# Mirror qcamera toggle into a runtime flag file so native daemons can read it reliably.
+if [ "${DISABLE_QCAMERA}" = "1" ]; then
+  touch /tmp/disable_qcamera
+else
+  rm -f /tmp/disable_qcamera
+fi
+
 # Camera indexes (if the code uses indexes)
 export ROAD_CAM=0
 # Buses to use for car fingerprinting (legacy CAN + FlexRay gateway buses).
@@ -88,6 +102,15 @@ if [ "$DISABLE_BOOTLOG" = "1" ]; then
     BLOCK_LIST="$BLOCK_LIST,bootlog"
   else
     BLOCK_LIST="bootlog"
+  fi
+fi
+
+if [ "$LOG_ONLY_MODE" = "1" ]; then
+  LOG_ONLY_BLOCKS="selfdrived,controlsd,plannerd,radard,card,dmonitoringd,dmonitoringmodeld,locationd,calibrationd,torqued,paramsd,lagd,soundd,mapd,mapd_manager,models_manager"
+  if [ -n "$BLOCK_LIST" ]; then
+    BLOCK_LIST="$BLOCK_LIST,$LOG_ONLY_BLOCKS"
+  else
+    BLOCK_LIST="$LOG_ONLY_BLOCKS"
   fi
 fi
 

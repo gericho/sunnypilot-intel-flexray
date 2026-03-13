@@ -5,6 +5,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <cstring>
+#include <unistd.h>
 
 #include "common/params.h"
 #include "system/loggerd/encoder/encoder.h"
@@ -12,6 +14,20 @@
 #include "system/loggerd/video_writer.h"
 
 ExitHandler do_exit;
+
+static bool disable_qcamera() {
+  const char *v = getenv("DISABLE_QCAMERA");
+  if (v != nullptr) return atoi(v) == 1;
+  return access("/tmp/disable_qcamera", F_OK) == 0;
+}
+
+static int encoder_queue_limit() {
+  const char *v = getenv("LOGGERD_ENCODER_QUEUE_LIMIT");
+  if (v != nullptr) return std::max(100, atoi(v));
+  // On PC/webcam runs, rotation can jitter for multiple seconds; keep a larger buffer
+  // so we avoid dropping HEVC packets that can corrupt playback in Cabana.
+  return std::max(MAIN_FPS * 10, ROAD_FPS * 45);
+}
 
 struct LoggerdState {
   LoggerState logger;
@@ -158,7 +174,7 @@ int handle_encoder_msg(LoggerdState *s, Message *msg, std::string &name, struct 
       }
       bytes_count += write_encode_data(s, event, re, encoder_info);
       delete msg;
-    } else if (re.q.size() > MAIN_FPS*10) {
+    } else if (re.q.size() > encoder_queue_limit()) {
       LOGE_100("%s: dropping frame waiting for audio initialization, queue is too large", name.c_str());
       delete msg;
     } else {
@@ -175,7 +191,7 @@ int handle_encoder_msg(LoggerdState *s, Message *msg, std::string &name, struct 
     }
 
     // TODO: define this behavior, but for now don't leak
-    if (re.q.size() > MAIN_FPS*10) {
+    if (re.q.size() > encoder_queue_limit()) {
       LOGE_100("%s: dropping frame, queue is too large", name.c_str());
       delete msg;
     } else {
@@ -261,6 +277,9 @@ void loggerd_thread() {
   std::vector<RemoteEncoder*> encoders_with_audio;
   for (const auto &cam : cameras_logged) {
     for (const auto &encoder_info : cam.encoder_infos) {
+      if (disable_qcamera() && strcmp(encoder_info.publish_name, "qRoadEncodeData") == 0) {
+        continue;
+      }
       encoder_infos_dict[encoder_info.publish_name] = encoder_info;
       s.max_waiting++;
     }
@@ -305,8 +324,18 @@ void loggerd_thread() {
         }
 
         if (service.encoder) {
-          s.last_camera_seen_tms = millis_since_boot();
-          bytes_count += handle_encoder_msg(&s, msg, service.name, remote_encoders[sock], encoder_infos_dict[service.name]);
+          if (disable_qcamera() && service.name == "qRoadEncodeData") {
+            delete msg;
+            continue;
+          }
+          auto enc_it = encoder_infos_dict.find(service.name);
+          if (enc_it != encoder_infos_dict.end()) {
+            s.last_camera_seen_tms = millis_since_boot();
+            bytes_count += handle_encoder_msg(&s, msg, service.name, remote_encoders[sock], enc_it->second);
+          } else {
+            // Ignore encoder streams that are not enabled (e.g. qRoadEncodeData with DISABLE_QCAMERA=1).
+            delete msg;
+          }
         } else {
           s.logger.write((uint8_t *)msg->getData(), msg->getSize(), in_qlog);
           bytes_count += msg->getSize();

@@ -15,6 +15,9 @@
 8. Added robust webcam format handling (including YUYV fallback conversion) and runtime stage profiling output.
 9. Switched webcam publish timing to monotonic nanosecond timestamps for improved playback/signal synchronization.
 10. Enforced Intel OpenCL execution for models (`DEV=CL` + Intel ICD-only `OCL_ICD_VENDORS`) to avoid CPU OpenCL fallback.
+11. Switched current logging profile to `fcamera`-only (qcamera disabled) to keep Cabana route handling deterministic on PC runs.
+12. Added logger queue tuning for encoder bursts (`LOGGERD_ENCODER_QUEUE_LIMIT`) and increased default buffering in `loggerd` to prevent HEVC packet drops during segment rotation.
+13. Tuned HEVC stability settings for PC capture: shorter GOP (keyframe cadence tied to `ROAD_FPS`) and reduced main-road bitrates (`ROAD_MAIN_BITRATE_LOW/HIGH`) to lower encoder pressure.
 
 ## Tested Hardware
 - CPU: Intel Core i5-7200U (4 vCPU, x86_64)
