@@ -13,17 +13,8 @@
 
 #include "system/loggerd/logger.h"
 
-inline int get_main_fps() {
-  static int fps = []() {
-    const char *v = getenv("ROAD_FPS");
-    const int parsed = (v != nullptr && v[0] != '\0') ? atoi(v) : 20;
-    return parsed > 0 ? parsed : 20;
-  }();
-  return fps;
-}
-//const auto MAIN_ENCODE_TYPE = Hardware::PC() ? cereal::EncodeIndex::Type::BIG_BOX_LOSSLESS : cereal::EncodeIndex::Type::FULL_H_E_V_C;
+constexpr int MAIN_FPS = 20;
 const auto MAIN_ENCODE_TYPE = cereal::EncodeIndex::Type::FULL_H_E_V_C;
-
 #define NO_CAMERA_PATIENCE 500  // fall back to time-based rotation if all cameras are dead
 
 #define INIT_ENCODE_FUNCTIONS(encode_type)                                \
@@ -33,6 +24,11 @@ const auto MAIN_ENCODE_TYPE = cereal::EncodeIndex::Type::FULL_H_E_V_C;
 
 const bool LOGGERD_TEST = getenv("LOGGERD_TEST");
 const int SEGMENT_LENGTH = LOGGERD_TEST ? atoi(getenv("LOGGERD_SEGMENT_LENGTH")) : 60;
+const int ROAD_FPS = getenv("ROAD_FPS") ? std::max(1, atoi(getenv("ROAD_FPS"))) : MAIN_FPS;
+const int QCAM_FPS = getenv("QCAM_FPS") ? std::max(1, atoi(getenv("QCAM_FPS"))) : ROAD_FPS;
+const int ROAD_MAIN_BITRATE_LOW = getenv("ROAD_MAIN_BITRATE_LOW") ? atoi(getenv("ROAD_MAIN_BITRATE_LOW")) : 5'000'000;
+const int ROAD_MAIN_BITRATE_HIGH = getenv("ROAD_MAIN_BITRATE_HIGH") ? atoi(getenv("ROAD_MAIN_BITRATE_HIGH")) : 10'000'000;
+const int QCAM_BITRATE = getenv("QCAM_BITRATE") ? atoi(getenv("QCAM_BITRATE")) : 256'000;
 
 constexpr char PRESERVE_ATTR_NAME[] = "user.preserve";
 constexpr char PRESERVE_ATTR_VALUE = '1';
@@ -44,17 +40,15 @@ struct EncoderSettings {
   int b_frames = 0; // we don't use b frames
 
   static EncoderSettings MainEncoderSettings(int in_width) {
-    const int fps = get_main_fps();
     if (in_width <= 1344) {
-      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = 5'000'000, .gop_size = fps};
+      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = ROAD_MAIN_BITRATE_LOW, .gop_size = 20};
     } else {
-      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = 10'000'000, .gop_size = fps};
+      return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = ROAD_MAIN_BITRATE_HIGH, .gop_size = 30};
     }
   }
 
   static EncoderSettings QcamEncoderSettings() {
-    const int fps = get_main_fps();
-    return EncoderSettings{.encode_type = cereal::EncodeIndex::Type::QCAMERA_H264, .bitrate = 256'000, .gop_size = fps};
+    return EncoderSettings{.encode_type = cereal::EncodeIndex::Type::QCAMERA_H264, .bitrate = QCAM_BITRATE, .gop_size = 15};
   }
 
   static EncoderSettings StreamEncoderSettings() {
@@ -72,7 +66,7 @@ public:
   bool include_audio = false;
   int frame_width = -1;
   int frame_height = -1;
-  int fps = get_main_fps();
+  int fps = MAIN_FPS;
   std::function<EncoderSettings(int)> get_settings;
 
   ::cereal::EncodeData::Reader (cereal::Event::Reader::*get_encode_data_func)() const;
@@ -83,7 +77,7 @@ public:
 class LogCameraInfo {
 public:
   const char *thread_name;
-  int fps = get_main_fps();
+  int fps = MAIN_FPS;
   VisionStreamType stream_type;
   std::vector<EncoderInfo> encoder_infos;
 };
@@ -92,6 +86,7 @@ const EncoderInfo main_road_encoder_info = {
   .publish_name = "roadEncodeData",
   .thumbnail_name = "thumbnail",
   .filename = "fcamera.hevc",
+  .fps = ROAD_FPS,
   .get_settings = [](int in_width){return EncoderSettings::MainEncoderSettings(in_width);},
   INIT_ENCODE_FUNCTIONS(RoadEncode),
 };
@@ -136,15 +131,17 @@ const EncoderInfo stream_driver_encoder_info = {
 const EncoderInfo qcam_encoder_info = {
   .publish_name = "qRoadEncodeData",
   .filename = "qcamera.ts",
+  .fps = QCAM_FPS,
   .get_settings = [](int){return EncoderSettings::QcamEncoderSettings();},
   .frame_width = 526,
   .frame_height = 330,
-  .include_audio = false,
+  .include_audio = Params().getBool("RecordAudio"),
   INIT_ENCODE_FUNCTIONS(QRoadEncode),
 };
 
 const LogCameraInfo road_camera_info{
   .thread_name = "road_cam_encoder",
+  .fps = ROAD_FPS,
   .stream_type = VISION_STREAM_ROAD,
   .encoder_infos = {main_road_encoder_info, qcam_encoder_info}
 };

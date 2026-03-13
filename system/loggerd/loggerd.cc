@@ -158,7 +158,7 @@ int handle_encoder_msg(LoggerdState *s, Message *msg, std::string &name, struct 
       }
       bytes_count += write_encode_data(s, event, re, encoder_info);
       delete msg;
-    } else if (re.q.size() > get_main_fps() * 10) {
+    } else if (re.q.size() > MAIN_FPS*10) {
       LOGE_100("%s: dropping frame waiting for audio initialization, queue is too large", name.c_str());
       delete msg;
     } else {
@@ -175,7 +175,7 @@ int handle_encoder_msg(LoggerdState *s, Message *msg, std::string &name, struct 
     }
 
     // TODO: define this behavior, but for now don't leak
-    if (re.q.size() > get_main_fps() * 10) {
+    if (re.q.size() > MAIN_FPS*10) {
       LOGE_100("%s: dropping frame, queue is too large", name.c_str());
       delete msg;
     } else {

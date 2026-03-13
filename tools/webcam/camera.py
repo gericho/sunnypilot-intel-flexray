@@ -23,32 +23,53 @@ class Camera:
       w = float(os.getenv("DRIVER_W", "1280"))
       h = float(os.getenv("DRIVER_H", "720"))
       fps = float(os.getenv("DRIVER_FPS", "20"))
+      fourcc = os.getenv("DRIVER_FOURCC", "YUYV").strip().upper()
     elif cam_type_state == "wideRoadCameraState":
       w = float(os.getenv("WIDE_W", os.getenv("ROAD_W", "1280")))
       h = float(os.getenv("WIDE_H", os.getenv("ROAD_H", "720")))
       fps = float(os.getenv("WIDE_FPS", os.getenv("ROAD_FPS", "20")))
+      fourcc = os.getenv("WIDE_FOURCC", os.getenv("ROAD_FOURCC", "NV12")).strip().upper()
     else:
       w = float(os.getenv("ROAD_W", "1280"))
       h = float(os.getenv("ROAD_H", "720"))
       fps = float(os.getenv("ROAD_FPS", "20"))
+      fourcc = os.getenv("ROAD_FOURCC", "NV12").strip().upper()
 
     self.fps = fps
 
+    if len(fourcc) == 4:
+      self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*fourcc))
     self.cap.set(cv.CAP_PROP_FRAME_WIDTH, w)
     self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, h)
     self.cap.set(cv.CAP_PROP_FPS, fps)
 
     self.W = self.cap.get(cv.CAP_PROP_FRAME_WIDTH)
     self.H = self.cap.get(cv.CAP_PROP_FRAME_HEIGHT)
+    self.w_int = int(self.W)
+    self.h_int = int(self.H)
     self.nv12_backend = os.getenv("WEBCAM_NV12_BACKEND", "opencv").strip().lower()
     self.flip_mode = os.getenv("WEBCAM_FLIP", "-1").strip().lower()
     self.flip_code = None if self.flip_mode in ("none", "off", "") else int(self.flip_mode)
     self.profile = os.getenv("WEBCAM_PROFILE", "0").strip().lower() in ("1", "true", "yes", "on")
+    self.raw_nv12_enabled = os.getenv("WEBCAM_RAW_NV12", "1").strip().lower() in ("1", "true", "yes", "on")
+    self._raw_nv12_active = False
+    self._raw_nv12_probed = False
+
+    # Fast path: if backend can deliver NV12 raw frames, skip BGR->NV12 conversion.
+    # Flip on raw NV12 is not handled here, so keep RGB conversion when flip is requested.
+    if self.raw_nv12_enabled and self.flip_code is None:
+      self.cap.set(cv.CAP_PROP_CONVERT_RGB, 0)
 
     self._frame_w = 0
     self._frame_h = 0
     self._nv12_buf = None
     self._uv_buf = None
+
+  def _is_nv12_frame(self, frame):
+    if frame is None or frame.dtype != np.uint8:
+      return False
+    expected = self.w_int * self.h_int * 3 // 2
+    return frame.size == expected
 
   def _ensure_nv12_buffers(self, w, h):
     if self._frame_w == w and self._frame_h == h and self._nv12_buf is not None:
@@ -91,6 +112,36 @@ class Camera:
       read_ms = (time.perf_counter() - t0) * 1000.0 if self.profile else 0.0
       if not ret:
         break
+
+      if not self._raw_nv12_probed:
+        self._raw_nv12_probed = True
+        self._raw_nv12_active = self._is_nv12_frame(frame)
+        print(f"[webcamerad:{self.cam_type_state}] raw_nv12={'active' if self._raw_nv12_active else 'inactive'}")
+        if self.raw_nv12_enabled and self.flip_code is None and not self._raw_nv12_active:
+          # Backend did not expose raw NV12, restore default OpenCV BGR conversion.
+          self.cap.set(cv.CAP_PROP_CONVERT_RGB, 1)
+
+      if self._raw_nv12_active:
+        yuv = frame if frame.flags["C_CONTIGUOUS"] else np.ascontiguousarray(frame)
+        payload = memoryview(yuv).cast('B')
+        if self.profile:
+          yield payload, {
+            "read_ms": read_ms,
+            "flip_ms": 0.0,
+            "convert_ms": 0.0,
+            "payload_ms": 0.0,
+          }
+        else:
+          yield payload, None
+        continue
+
+      # Some backends keep delivering YUYV frames even after toggling CONVERT_RGB.
+      # Normalize to BGR before conversion to NV12.
+      if frame.ndim == 3 and frame.shape[2] == 2:
+        frame = cv.cvtColor(frame, cv.COLOR_YUV2BGR_YUY2)
+      elif frame.ndim == 2:
+        frame = cv.cvtColor(frame, cv.COLOR_GRAY2BGR)
+
       flip_ms = 0.0
       if self.flip_code is not None:
         t1 = time.perf_counter() if self.profile else 0.0

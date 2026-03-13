@@ -8,6 +8,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
 }
 
@@ -24,11 +25,21 @@ public:
 
 private:
   int segment_num = -1;
-  int counter = 0;
+  int frame_counter = 0;
+  int packet_counter = 0;
   bool is_open = false;
 
   AVCodecContext *codec_ctx;
   AVFrame *frame = NULL;
+  AVFrame *sw_frame = NULL;
+  AVFrame *hw_frame = NULL;
+  AVBufferRef *hw_device_ctx = NULL;
+  AVBufferRef *hw_frames_ctx = NULL;
   std::vector<uint8_t> convert_buf;
   std::vector<uint8_t> downscale_buf;
+  std::vector<uint8_t> nv12_buf;
+  bool use_vaapi = false;
+  bool use_qsv = false;
+
+  bool init_vaapi(const char *device_path);
 };

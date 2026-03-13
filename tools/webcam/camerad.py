@@ -42,9 +42,10 @@ class Camerad:
     self.vipc_server.start_listener()
 
   def _send_yuv(self, yuv, frame_id, pub_type, yuv_type):
-    fps = max(1.0, float(next((cam.fps for cam in self.cameras if cam.cam_type_state == pub_type), 20.0)))
-    eof = int(frame_id * (1.0 / fps) * 1e9)
-    self.vipc_server.send(yuv_type, yuv, frame_id, eof, eof)
+    # Use monotonic timestamps in ns (same time domain expected by loggerd/Cabana).
+    # frame_id-relative timestamps break playback/signal sync.
+    eof_ns = time.monotonic_ns()
+    self.vipc_server.send(yuv_type, yuv, frame_id, eof_ns, eof_ns)
     dat = messaging.new_message(pub_type, valid=True)
     msg = {
       "frameId": frame_id,

@@ -18,10 +18,18 @@ cp /etc/OpenCL/vendors/intel.icd "${OPENCL_ICD_DIR}/intel.icd"
 export OCL_ICD_VENDORS="${OPENCL_ICD_DIR}"
 
 # Options: 0 = enabled, 1 = disabled
-export DISABLE_MODELD=0
+export DISABLE_MODELD=1
 export DISABLE_BOOTLOG=1
 export DEV=CL
 export HEVC_VAAPI_ASYNC_DEPTH=4
+export HEVC_ENCODER=vaapi
+export QCAMERA_ENCODER=vaapi
+export VAAPI_DEVICE=/dev/dri/renderD128
+export ROAD_MAIN_BITRATE_LOW=3500000
+export ROAD_MAIN_BITRATE_HIGH=6000000
+export QCAM_BITRATE=120000
+export QCAM_FPS=5
+export WEBCAM_RAW_NV12=1
 # NOTE: on this host/driver HEVC_VAAPI_LOW_POWER=1 fails with
 # "No usable encoding entrypoint found for profile VAProfileHEVCMain".
 #
