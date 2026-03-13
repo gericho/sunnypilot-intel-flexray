@@ -60,6 +60,8 @@ export WEBCAM_PROFILE_INTERVAL=5
 
 # Camera indexes (if the code uses indexes)
 export ROAD_CAM=0
+# Buses to use for car fingerprinting (legacy CAN + FlexRay gateway buses).
+export FINGERPRINT_BUSES=0,1,13,23,24
 #export DRIVER_CAM=4
 
 # Road camera parameters
