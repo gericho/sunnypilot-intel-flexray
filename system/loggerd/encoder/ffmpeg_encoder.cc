@@ -134,10 +134,16 @@ void FfmpegEncoder::encoder_open() {
       LOGW("fallback to software HEVC encoder");
     }
   }
-  assert(codec != nullptr);
+  if (codec == nullptr) {
+    LOGE("no encoder found for %s", encoder_info.publish_name);
+    return;
+  }
 
   this->codec_ctx = avcodec_alloc_context3(codec);
-  assert(this->codec_ctx);
+  if (this->codec_ctx == nullptr) {
+    LOGE("avcodec_alloc_context3 failed for %s", encoder_info.publish_name);
+    return;
+  }
   this->codec_ctx->width = frame->width;
   this->codec_ctx->height = frame->height;
   this->codec_ctx->pix_fmt = use_vaapi ? AV_PIX_FMT_VAAPI : (use_qsv ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P);
@@ -159,13 +165,73 @@ void FfmpegEncoder::encoder_open() {
     codec_ctx->hw_frames_ctx = av_buffer_ref(hw_frames_ctx);
     sw_frame = av_frame_alloc();
     hw_frame = av_frame_alloc();
-    assert(sw_frame != nullptr && hw_frame != nullptr);
-    sw_frame->format = AV_PIX_FMT_NV12;
-    sw_frame->width = out_width;
-    sw_frame->height = out_height;
-    int berr = av_frame_get_buffer(sw_frame, 32);
-    assert(berr >= 0);
-    nv12_buf.resize(out_width * out_height * 3 / 2);
+    if (sw_frame == nullptr || hw_frame == nullptr) {
+      LOGW("failed to allocate VAAPI frames, fallback to software encoder");
+      av_frame_free(&sw_frame);
+      av_frame_free(&hw_frame);
+      avcodec_free_context(&codec_ctx);
+      use_vaapi = false;
+      codec = qcamera_h264 ? avcodec_find_encoder(AV_CODEC_ID_H264) : avcodec_find_encoder(AV_CODEC_ID_HEVC);
+      if (codec == nullptr) {
+        LOGE("software fallback encoder not found for %s", encoder_info.publish_name);
+        return;
+      }
+      this->codec_ctx = avcodec_alloc_context3(codec);
+      if (this->codec_ctx == nullptr) {
+        LOGE("avcodec_alloc_context3 failed for software fallback %s", encoder_info.publish_name);
+        return;
+      }
+      this->codec_ctx->width = frame->width;
+      this->codec_ctx->height = frame->height;
+      this->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+      this->codec_ctx->time_base = (AVRational){ 1, encoder_info.fps };
+      this->codec_ctx->framerate = (AVRational){ encoder_info.fps, 1 };
+      this->codec_ctx->bit_rate = settings.bitrate;
+      this->codec_ctx->gop_size = settings.gop_size;
+      this->codec_ctx->max_b_frames = 0;
+      if (!qcamera_h264 && codec_ctx->priv_data != nullptr) {
+        av_opt_set(codec_ctx->priv_data, "preset", "ultrafast", 0);
+        av_opt_set(codec_ctx->priv_data, "tune", "zerolatency", 0);
+        av_opt_set(codec_ctx->priv_data, "x265-params", "bframes=0:repeat-headers=1", 0);
+      }
+    } else {
+      sw_frame->format = AV_PIX_FMT_NV12;
+      sw_frame->width = out_width;
+      sw_frame->height = out_height;
+      int berr = av_frame_get_buffer(sw_frame, 32);
+      if (berr < 0) {
+        LOGW("av_frame_get_buffer failed (%d), fallback to software encoder", berr);
+        av_frame_free(&sw_frame);
+        av_frame_free(&hw_frame);
+        avcodec_free_context(&codec_ctx);
+        use_vaapi = false;
+        codec = qcamera_h264 ? avcodec_find_encoder(AV_CODEC_ID_H264) : avcodec_find_encoder(AV_CODEC_ID_HEVC);
+        if (codec == nullptr) {
+          LOGE("software fallback encoder not found for %s", encoder_info.publish_name);
+          return;
+        }
+        this->codec_ctx = avcodec_alloc_context3(codec);
+        if (this->codec_ctx == nullptr) {
+          LOGE("avcodec_alloc_context3 failed for software fallback %s", encoder_info.publish_name);
+          return;
+        }
+        this->codec_ctx->width = frame->width;
+        this->codec_ctx->height = frame->height;
+        this->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+        this->codec_ctx->time_base = (AVRational){ 1, encoder_info.fps };
+        this->codec_ctx->framerate = (AVRational){ encoder_info.fps, 1 };
+        this->codec_ctx->bit_rate = settings.bitrate;
+        this->codec_ctx->gop_size = settings.gop_size;
+        this->codec_ctx->max_b_frames = 0;
+        if (!qcamera_h264 && codec_ctx->priv_data != nullptr) {
+          av_opt_set(codec_ctx->priv_data, "preset", "ultrafast", 0);
+          av_opt_set(codec_ctx->priv_data, "tune", "zerolatency", 0);
+          av_opt_set(codec_ctx->priv_data, "x265-params", "bframes=0:repeat-headers=1", 0);
+        }
+      } else {
+        nv12_buf.resize(out_width * out_height * 3 / 2);
+      }
+    }
   } else if (use_qsv) {
     LOGW("using QSV encoder %s for %s", codec->name, encoder_info.publish_name);
     if (codec_ctx->priv_data != nullptr) {
@@ -182,7 +248,43 @@ void FfmpegEncoder::encoder_open() {
   }
 
   int err = avcodec_open2(this->codec_ctx, codec, NULL);
-  assert(err >= 0);
+  if (err < 0 && (use_vaapi || use_qsv)) {
+    LOGW("hardware encoder open failed (%d), fallback to software for %s", err, encoder_info.publish_name);
+    avcodec_free_context(&codec_ctx);
+    av_frame_free(&sw_frame);
+    av_frame_free(&hw_frame);
+    use_vaapi = false;
+    use_qsv = false;
+    const AVCodec *sw_codec = qcamera_h264 ? avcodec_find_encoder(AV_CODEC_ID_H264) : avcodec_find_encoder(AV_CODEC_ID_HEVC);
+    if (sw_codec == nullptr) {
+      LOGE("software encoder unavailable for fallback %s", encoder_info.publish_name);
+      return;
+    }
+    this->codec_ctx = avcodec_alloc_context3(sw_codec);
+    if (this->codec_ctx == nullptr) {
+      LOGE("avcodec_alloc_context3 failed for software fallback %s", encoder_info.publish_name);
+      return;
+    }
+    this->codec_ctx->width = frame->width;
+    this->codec_ctx->height = frame->height;
+    this->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    this->codec_ctx->time_base = (AVRational){ 1, encoder_info.fps };
+    this->codec_ctx->framerate = (AVRational){ encoder_info.fps, 1 };
+    this->codec_ctx->bit_rate = settings.bitrate;
+    this->codec_ctx->gop_size = settings.gop_size;
+    this->codec_ctx->max_b_frames = 0;
+    if (!qcamera_h264 && codec_ctx->priv_data != nullptr) {
+      av_opt_set(codec_ctx->priv_data, "preset", "ultrafast", 0);
+      av_opt_set(codec_ctx->priv_data, "tune", "zerolatency", 0);
+      av_opt_set(codec_ctx->priv_data, "x265-params", "bframes=0:repeat-headers=1", 0);
+    }
+    err = avcodec_open2(this->codec_ctx, sw_codec, NULL);
+  }
+  if (err < 0) {
+    LOGE("avcodec_open2 failed (%d) for %s", err, encoder_info.publish_name);
+    avcodec_free_context(&codec_ctx);
+    return;
+  }
 
   is_open = true;
   segment_num++;

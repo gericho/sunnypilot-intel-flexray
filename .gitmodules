@@ -23,3 +23,4 @@
 [submodule "selfdrive/pandad"]
 	path = selfdrive/pandad
 	url = https://github.com/dynm/pandad-pico-flexray.git
+	ignore = dirty

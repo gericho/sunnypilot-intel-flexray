@@ -85,15 +85,18 @@ class Camerad:
         elapsed = now - interval_start
         if elapsed >= PROFILE_INTERVAL_S:
           fps = frame_count / elapsed if elapsed > 0 else 0.0
-          print(
-            f"[webcamerad:{cam.cam_type_state}] fps={fps:.2f} "
-            f"read_ms={sums['read_ms']/frame_count:.3f} "
-            f"flip_ms={sums['flip_ms']/frame_count:.3f} "
-            f"convert_ms={sums['convert_ms']/frame_count:.3f} "
-            f"payload_ms={sums['payload_ms']/frame_count:.3f} "
-            f"send_ms={sums['send_ms']/frame_count:.3f} "
-            f"backend={cam.nv12_backend} flip={cam.flip_mode}"
-          )
+          log_line = " ".join((
+            f"[webcamerad:{cam.cam_type_state}]",
+            f"fps={fps:.2f}",
+            f"read_ms={sums['read_ms']/frame_count:.3f}",
+            f"flip_ms={sums['flip_ms']/frame_count:.3f}",
+            f"convert_ms={sums['convert_ms']/frame_count:.3f}",
+            f"payload_ms={sums['payload_ms']/frame_count:.3f}",
+            f"send_ms={sums['send_ms']/frame_count:.3f}",
+            f"backend={cam.nv12_backend}",
+            f"flip={cam.flip_mode}",
+          ))
+          print(log_line)
           interval_start = now
           frame_count = 0
           for k in sums:
