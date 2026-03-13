@@ -85,6 +85,7 @@ void FfmpegEncoder::encoder_open() {
   const bool qcamera_h264 = settings.encode_type == cereal::EncodeIndex::Type::QCAMERA_H264;
   const char *device = getenv("VAAPI_DEVICE");
   if (device == nullptr || device[0] == '\0') device = "/dev/dri/renderD128";
+  const bool has_dri_device = (access(device, F_OK) == 0);
 
   use_vaapi = false;
   use_qsv = false;
@@ -95,8 +96,8 @@ void FfmpegEncoder::encoder_open() {
 
   if (qcamera_h264) {
     const char *qcam_impl = getenv("QCAMERA_ENCODER");
-    const bool try_vaapi = is_auto(qcam_impl) || is_set(qcam_impl, "vaapi");
-    const bool try_qsv = is_auto(qcam_impl) || is_set(qcam_impl, "qsv");
+    const bool try_vaapi = (is_auto(qcam_impl) && has_dri_device) || is_set(qcam_impl, "vaapi");
+    const bool try_qsv = (is_auto(qcam_impl) && has_dri_device) || is_set(qcam_impl, "qsv");
     if (try_vaapi) {
       codec = avcodec_find_encoder_by_name("h264_vaapi");
       if (codec != nullptr) {
@@ -115,8 +116,8 @@ void FfmpegEncoder::encoder_open() {
     }
   } else {
     const char *hevc_impl = getenv("HEVC_ENCODER");
-    const bool try_vaapi = is_auto(hevc_impl) || is_set(hevc_impl, "vaapi");
-    const bool try_qsv = is_auto(hevc_impl) || is_set(hevc_impl, "qsv");
+    const bool try_vaapi = (is_auto(hevc_impl) && has_dri_device) || is_set(hevc_impl, "vaapi");
+    const bool try_qsv = (is_auto(hevc_impl) && has_dri_device) || is_set(hevc_impl, "qsv");
     if (try_vaapi) {
       codec = avcodec_find_encoder_by_name("hevc_vaapi");
       if (codec != nullptr) {
@@ -302,6 +303,8 @@ void FfmpegEncoder::encoder_close() {
 }
 
 int FfmpegEncoder::encode_frame(VisionBuf* buf, VisionIpcBufExtra *extra) {
+  if (!is_open || codec_ctx == nullptr) return -1;
+
   assert(buf->width == this->in_width);
   assert(buf->height == this->in_height);
 
