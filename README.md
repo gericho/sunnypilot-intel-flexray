@@ -28,16 +28,7 @@
 - `FR4` (`U10`) is the ECU-side transceiver: `TXD GPIO16`, `TXEN GPIO22`, `RXD GPIO21`.
 - In the dual-channel firmware, `src 24` means `FR2 + FR4` and `src 23` means `FR2 + FR3`.
 
-## FlexRay MITM Mapping with Czok V2
-- Group 1 uses `FR1` and `FR2`.
-- `FR1` (`U5`) is the vehicle-side transceiver: `BUS_1_P`, `BUS_1_M`, `TXD GPIO28`, `TXEN GPIO27`, `RXD GPIO26`, `BGE GPIO2`, `STBN GPIO3`.
-- `FR2` (`U8`) is the ECU-side transceiver: `BUS_2_P`, `BUS_2_M`, `TXD GPIO4`, `TXEN GPIO5`, `RXD GPIO6`, `BGE GPIO2`, `STBN GPIO3`.
-- Group 2 uses `FR3` and `FR4`.
-- `FR3` (`U9`) is the vehicle-side transceiver: `BUS_3_P`, `BUS_3_M`, `TXD GPIO10`, `TXEN GPIO9`, `RXD GPIO8`, `BGE GPIO2`, `STBN GPIO3`.
-- `FR4` (`U10`) is the ECU-side transceiver: `BUS_4_P`, `BUS_4_M`, `TXD GPIO16`, `TXEN GPIO22`, `RXD GPIO21`, `BGE GPIO2`, `STBN GPIO3`.
-- In the dual-channel firmware, `src 24` means `FR2 + FR4` and `src 23` means `FR2 + FR3`.
-
-## CAN Inline Mapping
+## CAN Inline Mapping for Czok V2 Board
 - Transceiver: `U24`
 - Model: `SN65HVD230DR`
 - Bus-side transceiver pins: `CAN2H_COMMA`, `CAN2L_COMMA`
