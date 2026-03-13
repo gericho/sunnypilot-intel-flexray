@@ -3,7 +3,7 @@
 ![](https://user-images.githubusercontent.com/47793918/233812617-beab2e71-57b9-479e-8bff-c3931347ca40.png)
 
 ## Technical Delta Summary
-> **Status:** Work in progress. This fork should currently be considered **broken**.
+> **Status:** Work in progress. This fork should currently be considered **Bʀᴏᴋᴇɴ**.
 
 1. Added BMW i3 support in `opendbc` with a dedicated DBC and platform registration.
 2. Integrated FlexRay-related Panda communication/safety changes and Cabana decoding support.
@@ -16,7 +16,9 @@
 9. Switched webcam publish timing to monotonic nanosecond timestamps for improved playback/signal synchronization.
 10. Enforced Intel OpenCL execution for models (`DEV=CL` + Intel ICD-only `OCL_ICD_VENDORS`) to avoid CPU OpenCL fallback.
 
-CPU used for local validation: Intel Core i5-7200U (4 vCPU, x86_64).
+## Tested Hardware
+- CPU: Intel Core i5-7200U (4 vCPU, x86_64)
+- Webcam(s): Logitech BRIO (`usb-046d_Logitech_BRIO_6C9B1E5A`)
 
 ## 🌞 What is sunnypilot?
 [sunnypilot](https://github.com/sunnyhaibin/sunnypilot) is a fork of comma.ai's openpilot, an open source driver assistance system. sunnypilot offers the user a unique driving experience for over 300+ supported car makes and models with modified behaviors of driving assist engagements. sunnypilot complies with comma.ai's safety rules as accurately as possible.
