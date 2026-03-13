@@ -5,6 +5,8 @@
 ## Technical Delta Summary
 > **Status:** Work in progress. This fork should currently be considered **Bʀᴏᴋᴇɴ**.
 
+This project is based in part on CzokNorris's FlexRay work and the CzokNorris V1 board design.
+
 1. Added BMW i3 support in `opendbc` with a dedicated DBC and platform registration.
 2. Integrated FlexRay-related Panda communication/safety changes and Cabana decoding support.
 3. Enabled Intel hardware video encoding for PC testing (`hevc_vaapi` / `h264_vaapi`) with explicit runtime fallback paths.
@@ -18,6 +20,15 @@
 11. Switched current logging profile to `fcamera`-only (qcamera disabled) to keep Cabana route handling deterministic on PC runs.
 12. Added logger queue tuning for encoder bursts (`LOGGERD_ENCODER_QUEUE_LIMIT`) and increased default buffering in `loggerd` to prevent HEVC packet drops during segment rotation.
 13. Tuned HEVC stability settings for PC capture: shorter GOP (keyframe cadence tied to `ROAD_FPS`) and reduced main-road bitrates (`ROAD_MAIN_BITRATE_LOW/HIGH`) to lower encoder pressure.
+
+## FlexRay MITM Mapping
+- Group 1 uses `FR1` and `FR2`.
+- `FR1` (`U5`) is the vehicle-side transceiver: `TXD GPIO28`, `TXEN GPIO27`, `RXD GPIO26`.
+- `FR2` (`U8`) is the ECU-side transceiver: `TXD GPIO4`, `TXEN GPIO5`, `RXD GPIO6`.
+- Group 2 uses `FR3` and `FR4`.
+- `FR3` (`U9`) is the vehicle-side transceiver: `TXD GPIO10`, `TXEN GPIO9`, `RXD GPIO8`.
+- `FR4` (`U10`) is the ECU-side transceiver: `TXD GPIO16`, `TXEN GPIO22`, `RXD GPIO21`.
+- In the dual-channel firmware, `src 24` means `FR2 + FR4` and `src 23` means `FR2 + FR3`.
 
 ## Tested Hardware
 - CPU: Intel Core i5-7200U (4 vCPU, x86_64)
