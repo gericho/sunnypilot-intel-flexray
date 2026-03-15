@@ -3,21 +3,28 @@
 ![](https://user-images.githubusercontent.com/47793918/233812617-beab2e71-57b9-479e-8bff-c3931347ca40.png)
 
 ## Technical Delta Summary
-> **Status:** Work in progress. This fork should currently be considered **Bʀᴏᴋᴇɴ**.
+> **Status:** Work in progress. The Pico FlexRay + CAN transport path is currently working on the Czok V1 setup.
 
 1. Added BMW i3 support in `opendbc` with a dedicated DBC and platform registration.
 2. Integrated FlexRay-related Panda communication/safety changes and Cabana decoding support.
-3. Enabled Intel hardware video encoding for PC testing (`hevc_vaapi` / `h264_vaapi`) with explicit runtime fallback paths.
-4. Reworked FFmpeg encoder handling for NV12/VAAPI and added safer software fallback behavior for unsupported cases.
-5. Aligned logger segmentation with runtime camera FPS (`ROAD_FPS`) to improve route/segment timing consistency.
-6. Added dedicated qcamera tuning knobs (`QCAM_FPS`, `QCAM_BITRATE`) to reduce encoder/queue pressure on low-power CPUs.
-7. Optimized the webcam pipeline with a raw NV12 fast path (`WEBCAM_RAW_NV12`) and camera FOURCC control from env.
-8. Added robust webcam format handling (including YUYV fallback conversion) and runtime stage profiling output.
-9. Switched webcam publish timing to monotonic nanosecond timestamps for improved playback/signal synchronization.
-10. Enforced Intel OpenCL execution for models (`DEV=CL` + Intel ICD-only `OCL_ICD_VENDORS`) to avoid CPU OpenCL fallback.
-11. Switched current logging profile to `fcamera`-only (qcamera disabled) to keep Cabana route handling deterministic on PC runs.
-12. Added logger queue tuning for encoder bursts (`LOGGERD_ENCODER_QUEUE_LIMIT`) and increased default buffering in `loggerd` to prevent HEVC packet drops during segment rotation.
-13. Tuned HEVC stability settings for PC capture: shorter GOP (keyframe cadence tied to `ROAD_FPS`) and reduced main-road bitrates (`ROAD_MAIN_BITRATE_LOW/HIGH`) to lower encoder pressure.
+3. Added dual-endpoint Pico host support:
+   - `pandad` reads `0x81` for FlexRay and `0x82` for CAN
+   - Cabana live USB now reads both endpoints too
+4. Enabled simultaneous logging of:
+   - `src 0` = FlexRay ECU side
+   - `src 1` = FlexRay vehicle side
+   - `src 2` = external CAN on `CN13`
+5. Enabled Intel hardware video encoding for PC testing (`hevc_vaapi` / `h264_vaapi`) with explicit runtime fallback paths.
+6. Reworked FFmpeg encoder handling for NV12/VAAPI and added safer software fallback behavior for unsupported cases.
+7. Aligned logger segmentation with runtime camera FPS (`ROAD_FPS`) to improve route/segment timing consistency.
+8. Added dedicated qcamera tuning knobs (`QCAM_FPS`, `QCAM_BITRATE`) to reduce encoder/queue pressure on low-power CPUs.
+9. Optimized the webcam pipeline with a raw NV12 fast path (`WEBCAM_RAW_NV12`) and camera FOURCC control from env.
+10. Added robust webcam format handling (including YUYV fallback conversion) and runtime stage profiling output.
+11. Switched webcam publish timing to monotonic nanosecond timestamps for improved playback/signal synchronization.
+12. Enforced Intel OpenCL execution for models (`DEV=CL` + Intel ICD-only `OCL_ICD_VENDORS`) to avoid CPU OpenCL fallback.
+13. Switched current logging profile to `fcamera`-only (qcamera disabled) to keep Cabana route handling deterministic on PC runs.
+14. Added logger queue tuning for encoder bursts (`LOGGERD_ENCODER_QUEUE_LIMIT`) and increased default buffering in `loggerd` to prevent HEVC packet drops during segment rotation.
+15. Tuned HEVC stability settings for PC capture: shorter GOP (keyframe cadence tied to `ROAD_FPS`) and reduced main-road bitrates (`ROAD_MAIN_BITRATE_LOW/HIGH`) to lower encoder pressure.
 
 ## FlexRay MITM Mapping
 - Group 1 uses `FR1` and `FR2`.
@@ -28,13 +35,36 @@
 - `FR4` (`U10`) is the ECU-side transceiver: `TXD GPIO16`, `TXEN GPIO22`, `RXD GPIO21`.
 - In the dual-channel firmware, `src 24` means `FR2 + FR4` and `src 23` means `FR2 + FR3`.
 
-## CAN Inline Mapping for Czok V2 Board
-- Transceiver: `U24`
-- Model: `SN65HVD230DR`
-- Bus-side transceiver pins: `CAN2H_COMMA`, `CAN2L_COMMA`
-- Connected board labels: `C.CAN2H`, `C.CAN2L`
-- MCU logic labels: `CAN3TX`, `CAN3RX`, `CAN3STB`
-- RP2354B GPIO mapping: `GPIO22`, `GPIO21`, `GPIO20`
+## Czok V1 Connector Mapping
+
+- `CN4 / Flexray2 -> SAS / ECU side`
+- `CN3 / Flexray1 -> BDC / vehicle side`
+- `CN13 / CAN2 -> BMW i3 PT-CAN`
+
+Current live bus mapping:
+
+- `src 0` = FlexRay ECU side
+- `src 1` = FlexRay vehicle side
+- `src 2` = CAN (`CN13`)
+
+## Pico Host Stack Notes
+
+Matching host components:
+
+- `selfdrive/pandad`
+  - local path: `/home/gericho/sunnypilot/selfdrive/pandad`
+  - matching GitHub repo: `https://github.com/gericho/pandad-pico-flexray`
+  - branch: `Czok-V1-can`
+
+- `tools/cabana`
+  - live USB mode now reads both Pico endpoints:
+    - `0x81` for FlexRay
+    - `0x82` for CAN
+
+This means:
+
+- route replay from `rlog.zst` shows `0`, `1`, `2`
+- live USB in Cabana also shows `0`, `1`, `2`
 
 ## Credits
 - CzokNorris: this project builds on CzokNorris's FlexRay reverse-engineering work and the V1 board design. Board reference: `https://oshwlab.com/czoknorris/v1board`

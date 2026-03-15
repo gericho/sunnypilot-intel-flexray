@@ -97,6 +97,8 @@ private:
   // CAN buffer members
   uint8_t receive_buffer[RECV_SIZE + sizeof(can_header) + 64];
   uint32_t receive_buffer_size = 0;
+  uint8_t aux_receive_buffer[RECV_SIZE + sizeof(can_header) + 64];
+  uint32_t aux_receive_buffer_size = 0;
 
   // Internal methods
   bool init_usb_connection(const std::string& serial);

@@ -128,10 +128,19 @@ void Panda::set_data_speed_kbps(uint16_t bus, uint16_t speed) {
 bool Panda::can_receive(std::vector<can_frame>& out_vec) {
   // Check if enough space left in buffer to store RECV_SIZE data
   assert(receive_buffer_size + RECV_SIZE <= sizeof(receive_buffer));
+  assert(aux_receive_buffer_size + RECV_SIZE <= sizeof(aux_receive_buffer));
 
   int recv = bulk_read(0x81, &receive_buffer[receive_buffer_size], RECV_SIZE);
   if (!comms_healthy()) {
     return false;
+  }
+
+  int aux_recv = 0;
+  if (is_flexray()) {
+    aux_recv = bulk_read(0x82, &aux_receive_buffer[aux_receive_buffer_size], RECV_SIZE);
+    if (!comms_healthy()) {
+      return false;
+    }
   }
 
   bool ret = true;
@@ -142,6 +151,11 @@ bool Panda::can_receive(std::vector<can_frame>& out_vec) {
     } else {
       ret = unpack_can_buffer(receive_buffer, receive_buffer_size, out_vec);
     }
+  }
+
+  if (ret && is_flexray() && aux_recv > 0) {
+    aux_receive_buffer_size += aux_recv;
+    ret = unpack_can_buffer(aux_receive_buffer, aux_receive_buffer_size, out_vec);
   }
   return ret;
 }
