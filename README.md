@@ -60,6 +60,8 @@ Matching host components:
   - live USB mode now reads both Pico endpoints:
     - `0x81` for FlexRay
     - `0x82` for CAN
+  - includes the FlexRay-oriented `Demux` UI ported from `dynm/openpilot` branch `cabana-flexray`
+  - supports cycle-base views `1 / 2 / 4 / 8 / 16 / 32` for cyclic FlexRay frames whose first byte acts as a cycle index
 
 This means:
 
@@ -69,6 +71,7 @@ This means:
 ## Credits
 - CzokNorris: this project builds on CzokNorris's FlexRay reverse-engineering work and the V1 board design. Board reference: `https://oshwlab.com/czoknorris/v1board`
 - Dynm: FlexRay firmware foundation and related pico-flexray work. Repository: `https://github.com/dynm/pico-flexray`
+- Dynm openpilot Cabana: FlexRay demux UI inspiration and reference implementation from branch `cabana-flexray`
 
 ## Tested Hardware
 - CPU: Intel Core i5-7200U (4 vCPU, x86_64)

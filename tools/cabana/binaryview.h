@@ -59,6 +59,8 @@ public:
   MessageId msg_id;
   int row_count = 0;
   const int column_count = 9;
+  int demux_cycle_base = -1;
+  int demux_repetition = 1;
 };
 
 class BinaryView : public QTableView {
@@ -76,6 +78,11 @@ public:
   }
   QSize minimumSizeHint() const override;
   void setHeatmapLiveMode(bool live) { model->heatmap_live_mode = live; updateState(); }
+  void setDemuxParams(int repetition, int cycle_base, bool enabled) {
+    model->demux_repetition = std::max(1, repetition);
+    model->demux_cycle_base = enabled ? std::clamp(cycle_base, 0, model->demux_repetition - 1) : -1;
+    updateState();
+  }
 
 signals:
   void signalClicked(const cabana::Signal *sig);

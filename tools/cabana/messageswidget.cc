@@ -1,10 +1,13 @@
 #include "tools/cabana/messageswidget.h"
 
 #include <limits>
+#include <tuple>
 #include <utility>
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QPainter>
 #include <QPalette>
 #include <QPushButton>
@@ -82,6 +85,11 @@ QWidget *MessagesWidget::createToolBar() {
   layout->addWidget(suppress_clear = new QPushButton());
   suppress_clear->setToolTip(tr("Clear suppressed"));
   layout->addStretch(1);
+  layout->addWidget(new QLabel(tr("Demux:"), this));
+  auto demux_combo = new QComboBox(this);
+  demux_combo->addItems({"1", "2", "4", "8", "16", "32"});
+  demux_combo->setCurrentText("1");
+  layout->addWidget(demux_combo);
   QCheckBox *suppress_defined_signals = new QCheckBox(tr("Suppress Signals"), this);
   suppress_defined_signals->setToolTip(tr("Suppress defined signals"));
   suppress_defined_signals->setChecked(settings.suppress_defined_signals);
@@ -96,6 +104,16 @@ QWidget *MessagesWidget::createToolBar() {
   QObject::connect(suppress_add, &QPushButton::clicked, this, &MessagesWidget::suppressHighlighted);
   QObject::connect(suppress_clear, &QPushButton::clicked, this, &MessagesWidget::suppressHighlighted);
   QObject::connect(suppress_defined_signals, &QCheckBox::stateChanged, can, &AbstractStream::suppressDefinedSignals);
+  QObject::connect(demux_combo, &QComboBox::currentTextChanged, this, [this](const QString &txt) {
+    bool ok = false;
+    int value = txt.toInt(&ok);
+    if (ok && value > 0) {
+      model->setCycleRepetition(value);
+      if (model->rowCount() > 0) {
+        emit model->dataChanged(model->index(0, 0), model->index(model->rowCount() - 1, model->columnCount() - 1));
+      }
+    }
+  });
 
   suppressHighlighted();
   return toolbar;
@@ -175,6 +193,104 @@ QVariant MessageListModel::headerData(int section, Qt::Orientation orientation, 
   return {};
 }
 
+const std::vector<uint8_t> &MessageListModel::demuxBytes(const Item &item) const {
+  int repetition = getCycleRepetition();
+  if (repetition <= 1 || item.cycle_base < 0) {
+    return can->lastMessage(item.id).dat;
+  }
+
+  const auto &last_msg = can->lastMessage(item.id);
+  if (last_msg.dat.empty()) {
+    static const std::vector<uint8_t> empty_data;
+    return empty_data;
+  }
+
+  const int last_cycle = last_msg.dat[0];
+  const int block_base = last_cycle - (last_cycle % repetition);
+  const int desired_cycle = block_base + item.cycle_base;
+
+  if (last_msg.dat[0] == desired_cycle) {
+    return last_msg.dat;
+  }
+
+  const auto &evs = can->events(item.id);
+  const uint64_t current_mono = can->toMonoTime(can->currentSec());
+  auto it_current = std::upper_bound(evs.begin(), evs.end(), current_mono, CompareCanEvent());
+
+  for (auto rit = std::make_reverse_iterator(it_current); rit != evs.rend(); ++rit) {
+    const CanEvent *e = *rit;
+    if (!e || e->size == 0) continue;
+    const int cyc = e->dat[0];
+    const int cyc_base = cyc - (cyc % repetition);
+    if (cyc_base < block_base) break;
+    if (cyc == desired_cycle) {
+      uint64_t key = makeDemuxKey(item);
+      auto &dst = demux_bytes_cache_[key];
+      dst.assign(e->dat, e->dat + e->size);
+      return dst;
+    }
+  }
+
+  for (int step = 1; step <= 4; ++step) {
+    int older_cycle = desired_cycle - step * repetition;
+    for (auto rit = std::make_reverse_iterator(it_current); rit != evs.rend(); ++rit) {
+      const CanEvent *e = *rit;
+      if (e && e->size > 0 && e->dat[0] == older_cycle) {
+        uint64_t key = makeDemuxKey(item);
+        auto &dst = demux_bytes_cache_[key];
+        dst.assign(e->dat, e->dat + e->size);
+        return dst;
+      }
+    }
+  }
+
+  static const std::vector<uint8_t> empty_data;
+  return empty_data;
+}
+
+const std::vector<QColor> &MessageListModel::demuxColors(const Item &item) const {
+  static const QColor cyan(0, 187, 255, 128);
+  static const QColor red(255, 0, 0, 128);
+  static const double fade_alpha_delta = 5.0;
+
+  uint64_t key = makeDemuxKey(item);
+  auto &color_state = demux_color_states_[key];
+  const auto &current_bytes = demuxBytes(item);
+  if (current_bytes.empty()) {
+    static const std::vector<QColor> empty_colors;
+    return empty_colors;
+  }
+
+  if (color_state.last_data.empty()) {
+    color_state.last_data = current_bytes;
+    color_state.colors.assign(current_bytes.size(), QColor(0, 0, 0, 0));
+    color_state.last_update_time = can->currentSec();
+  }
+
+  double current_time = can->currentSec();
+  double time_delta = current_time - color_state.last_update_time;
+
+  if (color_state.colors.size() != current_bytes.size()) {
+    color_state.colors.resize(current_bytes.size(), QColor(0, 0, 0, 0));
+  }
+
+  for (size_t i = 0; i < current_bytes.size(); ++i) {
+    if (i < color_state.last_data.size() && current_bytes[i] != color_state.last_data[i]) {
+      color_state.colors[i] = current_bytes[i] > color_state.last_data[i] ? cyan : red;
+    } else {
+      QColor &c = color_state.colors[i];
+      if (c.alpha() > 0) {
+        int new_alpha = std::max(0, c.alpha() - static_cast<int>(fade_alpha_delta * time_delta * 60));
+        c.setAlpha(new_alpha);
+      }
+    }
+  }
+
+  color_state.last_data = current_bytes;
+  color_state.last_update_time = current_time;
+  return color_state.colors;
+}
+
 QVariant MessageListModel::data(const QModelIndex &index, int role) const {
   if (!index.isValid() || index.row() >= items_.size()) return {};
 
@@ -192,16 +308,44 @@ QVariant MessageListModel::data(const QModelIndex &index, int role) const {
     switch (index.column()) {
       case Column::NAME: return item.name;
       case Column::SOURCE: return item.id.source != INVALID_SOURCE ? QString::number(item.id.source) : NA;
-      case Column::ADDRESS: return toHexString(item.id.address);
+      case Column::ADDRESS: {
+        if (item.id.source != INVALID_SOURCE) {
+          int repetition = getCycleRepetition();
+          if (repetition > 1) {
+            int cycle_base = std::max(item.cycle_base, 0);
+            uint32_t demux_addr = (item.id.address << 8) + static_cast<uint32_t>(cycle_base);
+            return toHexString(demux_addr);
+          }
+        }
+        return toHexString(item.id.address);
+      }
       case Column::NODE: return item.node;
-      case Column::FREQ: return item.id.source != INVALID_SOURCE ? getFreq(can->lastMessage(item.id).freq) : NA;
-      case Column::COUNT: return item.id.source != INVALID_SOURCE ? QString::number(can->lastMessage(item.id).count) : NA;
+      case Column::FREQ: {
+        if (item.id.source == INVALID_SOURCE) return NA;
+        int repetition = getCycleRepetition();
+        if (repetition <= 1 || item.cycle_base < 0) return getFreq(can->lastMessage(item.id).freq);
+        return getFreq(can->lastMessage(item.id).freq / repetition);
+      }
+      case Column::COUNT: {
+        if (item.id.source == INVALID_SOURCE) return NA;
+        int repetition = getCycleRepetition();
+        if (repetition <= 1 || item.cycle_base < 0) return QString::number(can->lastMessage(item.id).count);
+        const auto &evs = can->events(item.id);
+        uint32_t cnt = 0;
+        for (const auto *e : evs) {
+          if (e && e->size > 0 && (e->dat[0] % repetition) == item.cycle_base) ++cnt;
+        }
+        return QString::number(cnt);
+      }
       case Column::DATA: return item.id.source != INVALID_SOURCE ? "" : NA;
     }
   } else if (role == ColorsRole) {
+    if (getCycleRepetition() > 1 && item.cycle_base >= 0) {
+      return QVariant::fromValue((void *)(&demuxColors(item)));
+    }
     return QVariant::fromValue((void*)(&can->lastMessage(item.id).colors));
   } else if (role == BytesRole && index.column() == Column::DATA && item.id.source != INVALID_SOURCE) {
-    return QVariant::fromValue((void*)(&can->lastMessage(item.id).dat));
+    return QVariant::fromValue((void *)(&demuxBytes(item)));
   } else if (role == Qt::ToolTipRole && index.column() == Column::NAME) {
     auto msg = dbc()->msg(item.id);
     auto tooltip = item.name;
@@ -230,11 +374,23 @@ void MessageListModel::dbcModified() {
 }
 
 void MessageListModel::sortItems(std::vector<MessageListModel::Item> &items) {
-  auto compare = [this](const auto &l, const auto &r) {
+  auto effectiveAddress = [this](const Item &it) -> uint32_t {
+    uint32_t addr = it.id.address;
+    if (it.id.source != INVALID_SOURCE) {
+      int repetition = getCycleRepetition();
+      if (repetition > 1) {
+        int cycle_base = std::max(it.cycle_base, 0);
+        addr = (addr << 8) + static_cast<uint32_t>(cycle_base);
+      }
+    }
+    return addr;
+  };
+
+  auto compare = [this, &effectiveAddress](const auto &l, const auto &r) {
     switch (sort_column) {
       case Column::NAME: return std::tie(l.name, l.id) < std::tie(r.name, r.id);
-      case Column::SOURCE: return std::tie(l.id.source, l.id.address) < std::tie(r.id.source, r.id.address);
-      case Column::ADDRESS: return std::tie(l.id.address, l.id.source) < std::tie(r.id.address, r.id.source);
+      case Column::SOURCE: return std::make_tuple(l.id.source, effectiveAddress(l)) < std::make_tuple(r.id.source, effectiveAddress(r));
+      case Column::ADDRESS: return std::make_tuple(effectiveAddress(l), l.id.source) < std::make_tuple(effectiveAddress(r), r.id.source);
       case Column::NODE: return std::tie(l.node, l.id) < std::tie(r.node, r.id);
       case Column::FREQ: return std::tie(can->lastMessage(l.id).freq, l.id) < std::tie(can->lastMessage(r.id).freq, r.id);
       case Column::COUNT: return std::tie(can->lastMessage(l.id).count, l.id) < std::tie(can->lastMessage(r.id).count, r.id);
@@ -284,10 +440,19 @@ bool MessageListModel::match(const MessageListModel::Item &item) {
       case Column::SOURCE:
         match = parseRange(txt, item.id.source);
         break;
-      case Column::ADDRESS:
-        match = toHexString(item.id.address).contains(txt, Qt::CaseInsensitive);
-        match = match || parseRange(txt, item.id.address, 16);
+      case Column::ADDRESS: {
+        uint32_t addr = item.id.address;
+        if (item.id.source != INVALID_SOURCE) {
+          int repetition = getCycleRepetition();
+          if (repetition > 1) {
+            int cycle_base = std::max(item.cycle_base, 0);
+            addr = (addr << 8) + static_cast<uint32_t>(cycle_base);
+          }
+        }
+        match = toHexString(addr).contains(txt, Qt::CaseInsensitive);
+        match = match || parseRange(txt, addr, 16);
         break;
+      }
       case Column::NODE:
         match = item.node.contains(txt, Qt::CaseInsensitive);
         break;
@@ -322,11 +487,22 @@ bool MessageListModel::filterAndSort() {
   for (const auto &id : all_messages) {
     if (show_inactive_messages || can->isMessageActive(id)) {
       auto msg = dbc()->msg(id);
-      Item item = {.id = id,
-                  .name = msg ? msg->name : UNTITLED,
-                  .node = msg ? msg->transmitter : QString()};
-      if (match(item))
-        items.emplace_back(item);
+      int repetition = getCycleRepetition();
+      if (repetition > 1 && id.source != INVALID_SOURCE) {
+        for (int cb = 0; cb < repetition; ++cb) {
+          Item item = {.id = id,
+                       .name = msg ? msg->name : UNTITLED,
+                       .node = msg ? msg->transmitter : QString(),
+                       .cycle_base = cb};
+          if (match(item)) items.emplace_back(item);
+        }
+      } else {
+        Item item = {.id = id,
+                     .name = msg ? msg->name : UNTITLED,
+                     .node = msg ? msg->transmitter : QString(),
+                     .cycle_base = -1};
+        if (match(item)) items.emplace_back(item);
+      }
     }
   }
   sortItems(items);
@@ -341,6 +517,8 @@ bool MessageListModel::filterAndSort() {
 }
 
 void MessageListModel::msgsReceived(const std::set<MessageId> *new_msgs, bool has_new_ids) {
+  demux_bytes_cache_.clear();
+  demux_colors_cache_.clear();
   if (has_new_ids || ((filters_.count(Column::FREQ) || filters_.count(Column::COUNT) || filters_.count(Column::DATA)) &&
                       ++sort_threshold_ == settings.fps)) {
     sort_threshold_ = 0;

@@ -172,6 +172,12 @@ void MainWindow::createDockWidgets() {
   messages_dock->setWidget(messages_widget);
   QObject::connect(messages_widget, &MessagesWidget::titleChanged, messages_dock, &QDockWidget::setWindowTitle);
   QObject::connect(messages_widget, &MessagesWidget::msgSelectionChanged, center_widget, &CenterWidget::setMessage);
+  QObject::connect(messages_widget, &MessagesWidget::msgSelectionChanged, this, [this](const MessageId &id){
+    int repetition = 1;
+    if (messages_widget) repetition = messages_widget->currentCycleRepetition();
+    int idx = (repetition > 1) ? static_cast<int>(id.address & 0xFF) : 0;
+    emit this->syncBitDemux(repetition, idx, repetition > 1);
+  });
 
   // right panel
   charts_widget = new ChartsWidget(this);
