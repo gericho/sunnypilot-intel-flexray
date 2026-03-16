@@ -37,6 +37,14 @@
    - `0/131` separates `OFF (643)`, `ACC base active (3584)`, and managed/following states (`640/656`)
    - `0/135` separates `OFF (35041)`, `ACC base active (16610)`, and managed/following assist state (`24802`)
    - `FlexRay 1/97` remains useful as a command/stalk transition frame, not as the stable ACC state
+20. Promoted the strongest historical TJA lateral helpers from legacy routes `00000054` and `00000055`:
+   - `FlexRay 24/112` = primary stock lateral/TJA helper
+   - `FlexRay 23/116` = secondary stock lateral/TJA helper
+   - `FlexRay 23/275` = lateral/TJA confirmation helper
+   - the same payload families are also present on the modern interface in route `000000b3`, now exposed on `src 1`
+21. Added first bit-level notes for stock lateral reverse-engineering:
+   - `112.byte5 bit5` is the strongest manual/off vs assisted-steering discriminator
+   - `116` confirms assisted-steering phase changes, but does not yet expose a single robust boolean bit
 
 ## FlexRay MITM Mapping
 - Group 1 uses `FR1` and `FR2`.
@@ -102,6 +110,12 @@ This means:
   - `FlexRay 0/131` = longitudinal gate/coarse state
   - `FlexRay 0/135` = main longitudinal state
   - `FlexRay 1/97` = ACC/TJA/speed-stalk transition echo
+- Confirmed stock TJA reverse helpers from historical FlexRay-only routes:
+  - `FlexRay 24/112` = primary lateral helper
+  - `FlexRay 23/116` = secondary lateral helper
+  - `FlexRay 23/275` = confirmation/helper frame
+  - on the modern dual-FlexRay interface these same frames are present on `src 1`
+  - first bit-level result: `112.byte5 bit5` best separates manual/off from assisted steering
 
 ## Credits
 - CzokNorris: this project builds on CzokNorris's FlexRay reverse-engineering work and the V1 board design. Board reference: `https://oshwlab.com/czoknorris/v1board`
