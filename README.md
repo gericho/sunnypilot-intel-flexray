@@ -300,6 +300,18 @@ Your continuous love and support are greatly appreciated! Enjoy 🥰
 
 <span>-</span> Jason, Founder of sunnypilot
 
+## BMW i3 Shadow Debug
+- Shadow lateral debug event:
+  - `bmw_i3_shadow_acc`
+- Shadow longitudinal debug event:
+  - `bmw_i3_shadow_long`
+- Both are read-only:
+  - no real actuator output is transmitted
+- Extract the latest shadow debug lines with:
+  - `python scripts/extract_bmw_i3_shadow_logs.py`
+- Or inspect a specific log file:
+  - `python scripts/extract_bmw_i3_shadow_logs.py /home/gericho/.comma/log/swaglog.0000000000`
+
 ## Credits
 - CzokNorris: FlexRay reverse-engineering groundwork and V1 board design reference, `https://oshwlab.com/czoknorris/v1board`
 - Dynm: `pico-flexray` firmware foundation and related BMW FlexRay work, `https://github.com/dynm/pico-flexray`
