@@ -37,6 +37,10 @@
    - `0/131` separates `OFF (643)`, `ACC base active (3584)`, and managed/following states (`640/656`)
    - `0/135` separates `OFF (35041)`, `ACC base active (16610)`, and managed/following assist state (`24802`)
    - `FlexRay 1/97` remains useful as a command/stalk transition frame, not as the stable ACC state
+   - for stock longitudinal content, the current best candidates are:
+     - `FlexRay 1/59` = strongest pedal/hold/coast-state candidate
+     - `FlexRay 1/54` = best brake-blend / regen-support candidate
+     - `FlexRay 1/44` and `1/43` = weaker secondary dynamic-state helpers
 20. Promoted the strongest historical TJA lateral helpers from legacy routes `00000054` and `00000055`:
    - `FlexRay 24/112` = primary stock lateral/TJA helper
    - `FlexRay 23/116` = secondary stock lateral/TJA helper
@@ -110,6 +114,8 @@ This means:
   - `FlexRay 0/131` = longitudinal gate/coarse state
   - `FlexRay 0/135` = main longitudinal state
   - `FlexRay 1/97` = ACC/TJA/speed-stalk transition echo
+  - `FlexRay 1/59` = best current stock longitudinal content candidate
+  - `FlexRay 1/54` = best current stock brake-blend / regen-support candidate
 - Confirmed stock TJA reverse helpers from historical FlexRay-only routes:
   - `FlexRay 24/112` = primary lateral helper
   - `FlexRay 23/116` = secondary lateral helper
