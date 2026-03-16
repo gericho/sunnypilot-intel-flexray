@@ -116,6 +116,18 @@ class Car:
       self.CP = self.CI.CP
       self.CP_SP = self.CI.CP_SP
 
+      # Keep sunnypilot's selected vehicle bundle aligned with a successful
+      # automatic fingerprint so the UI doesn't remain on an unknown variant.
+      if not self.params.get("CarPlatformBundle"):
+        car_list = self.params.get("CarList") or {}
+        matches = [(name, data) for name, data in car_list.items()
+                   if data.get("platform") == self.CP.carFingerprint]
+        if len(matches) == 1:
+          name, data = matches[0]
+          bundle = dict(data)
+          bundle["name"] = name
+          self.params.put("CarPlatformBundle", bundle)
+
       # continue onto next fingerprinting step in pandad
       self.params.put_bool("FirmwareQueryDone", True)
     else:
