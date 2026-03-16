@@ -49,6 +49,12 @@
 21. Added first bit-level notes for stock lateral reverse-engineering:
    - `112.byte5 bit5` is the strongest manual/off vs assisted-steering discriminator
    - `116` confirms assisted-steering phase changes, but does not yet expose a single robust boolean bit
+22. Refined stock longitudinal content reverse-engineering:
+   - `59` remains the strongest stock pedal/hold/coast-state candidate
+   - `54` remains the best brake-blend / regen-support candidate
+   - for practical inspection, the most useful helper bytes are:
+     - `59.byte3-5`
+     - `54.byte3-6`
 
 ## FlexRay MITM Mapping
 - Group 1 uses `FR1` and `FR2`.
@@ -116,6 +122,9 @@ This means:
   - `FlexRay 1/97` = ACC/TJA/speed-stalk transition echo
   - `FlexRay 1/59` = best current stock longitudinal content candidate
   - `FlexRay 1/54` = best current stock brake-blend / regen-support candidate
+  - most useful longitudinal helper bytes:
+    - `59.byte3-5`
+    - `54.byte3-6`
 - Confirmed stock TJA reverse helpers from historical FlexRay-only routes:
   - `FlexRay 24/112` = primary lateral helper
   - `FlexRay 23/116` = secondary lateral helper
