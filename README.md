@@ -32,6 +32,11 @@
 18. Added a simple live debug tool:
    - `scripts/bmw_i3_live_monitor.py`
    - prints `gear`, `blinkers`, `seatbelt`, `door`, `brake`, `gasPressed`, `cruiseState`, and mapped `buttonEvents`
+19. Refined stock ACC reverse-engineering on modern BMW i3 routes:
+   - primary longitudinal stock-state helpers are now `FlexRay 0/131` and `0/135`
+   - `0/131` separates `OFF (643)`, `ACC base active (3584)`, and managed/following states (`640/656`)
+   - `0/135` separates `OFF (35041)`, `ACC base active (16610)`, and managed/following assist state (`24802`)
+   - `FlexRay 1/97` remains useful as a command/stalk transition frame, not as the stable ACC state
 
 ## FlexRay MITM Mapping
 - Group 1 uses `FR1` and `FR2`.
@@ -79,6 +84,11 @@ This means:
 
 - Runtime fingerprint: `BMW_I3_EXPERIMENTAL`
 - Startup profile: `./go.sh` defaults to `full_experimental`
+- Current PC debug defaults in `go.sh`:
+  - `ROAD_FPS=20`
+  - `backlight_compensation=1` on `/dev/video0`
+  - `modeld` disabled
+  - `encoderd` enabled
 - Confirmed mapped signals:
   - `gear`: `P / D / N / R`
   - `blinkers`
@@ -88,6 +98,10 @@ This means:
   - `brakePressed`
   - `cruiseState`
   - `SET`, `RES`, `ACC`, `TJA`
+- Confirmed stock ACC reverse helpers:
+  - `FlexRay 0/131` = longitudinal gate/coarse state
+  - `FlexRay 0/135` = main longitudinal state
+  - `FlexRay 1/97` = ACC/TJA/speed-stalk transition echo
 
 ## Credits
 - CzokNorris: this project builds on CzokNorris's FlexRay reverse-engineering work and the V1 board design. Board reference: `https://oshwlab.com/czoknorris/v1board`

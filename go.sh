@@ -57,6 +57,8 @@ export_default LOGGERD_ENCODER_QUEUE_LIMIT 1200
 export_default QCAM_BITRATE 120000
 export_default QCAM_FPS 5
 export_default WEBCAM_RAW_NV12 1
+export_default WEBCAM_BACKLIGHT_COMPENSATION 1
+export_default DISABLE_ENCODERD 0
 
 case "${RUN_PROFILE}" in
   log_only_stable)
@@ -68,7 +70,7 @@ case "${RUN_PROFILE}" in
     export_default LOG_ONLY_MODE 1
     ;;
   full_experimental)
-    export_default DISABLE_MODELD 0
+    export_default DISABLE_MODELD 1
     export_default LOG_ONLY_MODE 0
     ;;
   *)
@@ -121,7 +123,7 @@ export_default FINGERPRINT_BUSES 0,1,13,23,24
 # Road camera parameters
 export_default ROAD_W 1280
 export_default ROAD_H 720
-export_default ROAD_FPS 10
+export_default ROAD_FPS 20
 export_default ROAD_FOURCC NV12 # YUYV NV12 MJPG
 
 # Driver camera parameters
@@ -141,6 +143,10 @@ if [ "$DISABLE_BOOTLOG" = "1" ]; then
   append_block "bootlog"
 fi
 
+if [ "$DISABLE_ENCODERD" = "1" ]; then
+  append_block "encoderd"
+fi
+
 if [ "$LOG_ONLY_MODE" = "1" ]; then
   LOG_ONLY_BLOCKS="selfdrived,controlsd,plannerd,radard,card,dmonitoringd,dmonitoringmodeld,locationd,calibrationd,torqued,paramsd,lagd,soundd,mapd,mapd_manager,models_manager"
   append_block "$LOG_ONLY_BLOCKS"
@@ -153,6 +159,7 @@ fi
 # Configure V4L2 hardware settings (best effort)
 v4l2-ctl -d /dev/video0 --set-fmt-video=width=${ROAD_W},height=${ROAD_H},pixelformat=${ROAD_FOURCC} || true
 v4l2-ctl -d /dev/video0 --set-parm=${ROAD_FPS} || true
+v4l2-ctl -d /dev/video0 --set-ctrl=backlight_compensation=${WEBCAM_BACKLIGHT_COMPENSATION} || true
 
 # Disable autofocus (Logitech BRIO only)
 v4l2-ctl -d /dev/video0 --set-ctrl=focus_automatic_continuous=0 || true
