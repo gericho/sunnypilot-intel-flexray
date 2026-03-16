@@ -52,8 +52,8 @@ Current live bus mapping:
 Matching host components:
 
 - `selfdrive/pandad`
-  - local path: `/home/gericho/sunnypilot/selfdrive/pandad`
-  - matching GitHub repo: `https://github.com/gericho/pandad-pico-flexray`
+  - location in this tree: `selfdrive/pandad`
+  - matching host-side fork: see the fork/branch that adds Pico dual-endpoint support
   - branch: `Czok-V1-can`
 
 - `tools/cabana`
@@ -75,7 +75,7 @@ This means:
 
 ## Tested Hardware
 - CPU: Intel Core i5-7200U (4 vCPU, x86_64)
-- Webcam(s): Logitech BRIO (`usb-046d_Logitech_BRIO_6C9B1E5A`)
+- Webcam(s): Logitech BRIO
 
 ## 🌞 What is sunnypilot?
 [sunnypilot](https://github.com/sunnyhaibin/sunnypilot) is a fork of comma.ai's openpilot, an open source driver assistance system. sunnypilot offers the user a unique driving experience for over 300+ supported car makes and models with modified behaviors of driving assist engagements. sunnypilot complies with comma.ai's safety rules as accurately as possible.
