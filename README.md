@@ -37,10 +37,24 @@
    - `0/131` separates `OFF (643)`, `ACC base active (3584)`, and managed/following states (`640/656`)
    - `0/135` separates `OFF (35041)`, `ACC base active (16610)`, and managed/following assist state (`24802`)
    - `FlexRay 1/97` remains useful as a command/stalk transition frame, not as the stable ACC state
-   - for stock longitudinal content, the current best candidates are:
+  - for stock longitudinal content, the current best candidates are:
      - `FlexRay 1/59` = strongest pedal/hold/coast-state candidate
      - `FlexRay 1/54` = best brake-blend / regen-support candidate
      - `FlexRay 1/44` and `1/43` = weaker secondary dynamic-state helpers
+   - strongest long-TX-oriented helper fields currently are:
+     - `1/59`
+       - `LONG_TX_POWERTRAIN_WORD_B`
+       - `LONG_TX_POWERTRAIN_WORD_C`
+       - `LONG_TX_POWERTRAIN_BYTE_3`
+       - `LONG_TX_POWERTRAIN_BYTE_5`
+     - `1/54`
+       - `LONG_TX_BRAKE_BLEND_WORD_B`
+       - `LONG_TX_BRAKE_BLEND_WORD_C`
+       - `LONG_TX_BRAKE_BLEND_BYTE_4`
+       - `LONG_TX_BRAKE_BLEND_BYTE_6`
+   - current interpretation:
+     - `59` is the best proxy for stock longitudinal high-level powertrain request/content
+     - `54` is the best proxy for stock brake-blend / regen execution
 20. Promoted the strongest historical TJA lateral helpers from legacy routes `00000054` and `00000055`:
    - `FlexRay 24/112` = primary stock lateral/TJA helper
    - `FlexRay 23/116` = secondary stock lateral/TJA helper
@@ -55,6 +69,32 @@
    - for practical inspection, the most useful helper bytes are:
      - `59.byte3-5`
      - `54.byte3-6`
+23. Added coarse offline stock longitudinal indices for route analysis:
+   - `long_stock_mode`
+     - anchor it from `FlexRay 0/131` + `0/135`
+     - `OFF = 643 / 35041`
+     - `ACC base = 3584 / 16610`
+     - `managed/following = 640|656 / 24802`
+   - `long_stock_powertrain_index`
+     - derived offline from `FlexRay 1/59`
+     - primarily follows `59.byte3-5`
+     - low in clear human pedal windows
+     - higher in stock-managed coast/following windows
+   - `long_stock_brake_blend_index`
+     - derived offline from `FlexRay 1/54`
+     - primarily follows `54.byte3-6`
+     - lower in stable manual/off windows
+     - higher in stock-controlled coast/following and automatic decel windows
+24. Refined longitudinal interpretation around strong automatic braking:
+   - `FlexRay 1/59` should be treated as the best current proxy for stock longitudinal powertrain intent/state, not as a confirmed direct pedal-equivalent in physical units
+   - `FlexRay 1/54` should be treated as the best current proxy for stock brake-blend / regen-support execution
+   - in strong stock braking windows from historical TJA routes, both `59` and `54` move together:
+     - `59` changes family away from its stable managed-following pattern
+     - `54` changes even more strongly, especially on `byte3`, `byte4`, and `byte6`
+   - current best interpretation is:
+     - high-level stock longitudinal request is carried through the ADAS path
+     - BDC/powertrain then translate it into regen and, when needed, mechanical braking
+     - `59` and `54` are the best current observable proxies for those two branches
 
 ## FlexRay MITM Mapping
 - Group 1 uses `FR1` and `FR2`.
@@ -125,12 +165,58 @@ This means:
   - most useful longitudinal helper bytes:
     - `59.byte3-5`
     - `54.byte3-6`
+  - current coarse offline derived semantics:
+    - `long_stock_mode`
+    - `long_stock_powertrain_index`
+    - `long_stock_brake_blend_index`
+  - these are analysis helpers, not direct actuator units
+  - current best interpretation:
+    - `59` = stock longitudinal powertrain-intent proxy
+    - `54` = stock brake-blend / regen-support proxy
+    - in heavy automatic braking windows both frames move together, consistent with regen plus mechanical braking being coordinated from one higher-level decel request
+  - modern confirmation route:
+    - `000000e9--f69facea42--0`
+    - confirms a full modern sequence of:
+      - ACC engage and set-speed raise
+      - TJA active
+      - TJA off while ACC remains active
+      - strong stock automatic deceleration
+      - TJA re-entry
+      - final lane/camera degradation exit
+    - confirms again:
+      - `0/131 + 0/135` as stock ACC/TJA state
+      - `1/59` as the best stock longitudinal powertrain-intent proxy
+      - `1/54` as the best stock brake-blend / regen-support proxy
 - Confirmed stock TJA reverse helpers from historical FlexRay-only routes:
   - `FlexRay 24/112` = primary lateral helper
   - `FlexRay 23/116` = secondary lateral helper
   - `FlexRay 23/275` = confirmation/helper frame
   - on the modern dual-FlexRay interface these same frames are present on `src 1`
   - first bit-level result: `112.byte5 bit5` best separates manual/off from assisted steering
+  - modern lateral TX candidate:
+    - `FlexRay 0/72`
+    - modern routes `000000e9` and `000000ea` strongly suggest this is the stock steering-control transmit family
+    - useful content appears in odd phase subframes only
+    - in those odd phase subframes:
+      - `byte0` = phase
+      - `byte2` is not the steer command; it is `0xF` high nibble plus a rolling low-nibble counter
+      - `byte8` stays fixed at `0xE0`
+    - `112/116` remain the best lateral RX/state helpers, while `72` remains the best current lateral TX container candidate
+    - current status:
+      - TX frame family localized
+      - odd subframe structure localized
+      - actual lateral command payload still unresolved
+  - modern lateral TX payload candidate:
+    - `FlexRay 0/96`
+    - changes coherently during TJA left/right steering windows in `000000e9` and `000000ea`
+    - currently the best candidate for the actual stock lateral TX payload
+    - still not closed enough to derive a reproducible signed steer command
+  - modern confirmation route:
+    - `000000e9--f69facea42--0`
+    - confirms again:
+      - `1/112` as the main lateral-stock state frame
+      - `1/116` as the main lateral-stock support frame
+    - does not yet close a robust left/right steering-sign signal, but clearly confirms assisted vs non-assisted lateral state transitions
 
 ## Credits
 - CzokNorris: this project builds on CzokNorris's FlexRay reverse-engineering work and the V1 board design. Board reference: `https://oshwlab.com/czoknorris/v1board`
@@ -213,3 +299,9 @@ By becoming a sponsor, you will gain access to exclusive content, early access t
 Your continuous love and support are greatly appreciated! Enjoy 🥰
 
 <span>-</span> Jason, Founder of sunnypilot
+
+## Credits
+- CzokNorris: FlexRay reverse-engineering groundwork and V1 board design reference, `https://oshwlab.com/czoknorris/v1board`
+- Dynm: `pico-flexray` firmware foundation and related BMW FlexRay work, `https://github.com/dynm/pico-flexray`
+- Dynm openpilot: Cabana FlexRay demux reference from branch `cabana-flexray`
+- smnogar: BMW openpilot/opendbc reference points used for signal naming and structural comparison
