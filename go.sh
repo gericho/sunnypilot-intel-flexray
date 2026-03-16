@@ -38,7 +38,10 @@ export OCL_ICD_VENDORS="${OPENCL_ICD_DIR}"
 # - log_only_stable: fcamera-only logging tuned for reliable Cabana playback on PC
 # - log_modeld: keeps modeld enabled while preserving the stable logging defaults
 # - full_experimental: minimal blocking for broader bring-up/debug sessions
-export_default RUN_PROFILE log_only_stable
+#
+# Default to the full stack for live bring-up/debug. Use
+# `RUN_PROFILE=log_only_stable ./go.sh` explicitly when you only want route logging.
+export_default RUN_PROFILE full_experimental
 
 export_default DISABLE_BOOTLOG 1
 export_default DISABLE_QCAMERA 1
