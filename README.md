@@ -140,83 +140,15 @@ This means:
 
 ## BMW i3 Runtime Status
 
-- Runtime fingerprint: `BMW_I3_EXPERIMENTAL`
-- Startup profile: `./go.sh` defaults to `full_experimental`
-- Current PC debug defaults in `go.sh`:
-  - `ROAD_FPS=20`
-  - `backlight_compensation=1` on `/dev/video0`
-  - `modeld` disabled
-  - `encoderd` enabled
-- Confirmed mapped signals:
-  - `gear`: `P / D / N / R`
-  - `blinkers`
-  - `seatbelt`
-  - `driver door`
-  - `gasPressed`
-  - `brakePressed`
-  - `cruiseState`
-  - `SET`, `RES`, `ACC`, `TJA`
-- Confirmed stock ACC reverse helpers:
-  - `FlexRay 0/131` = longitudinal gate/coarse state
-  - `FlexRay 0/135` = main longitudinal state
-  - `FlexRay 1/97` = ACC/TJA/speed-stalk transition echo
-  - `FlexRay 1/59` = best current stock longitudinal content candidate
-  - `FlexRay 1/54` = best current stock brake-blend / regen-support candidate
-  - most useful longitudinal helper bytes:
-    - `59.byte3-5`
-    - `54.byte3-6`
-  - current coarse offline derived semantics:
-    - `long_stock_mode`
-    - `long_stock_powertrain_index`
-    - `long_stock_brake_blend_index`
-  - these are analysis helpers, not direct actuator units
-  - current best interpretation:
-    - `59` = stock longitudinal powertrain-intent proxy
-    - `54` = stock brake-blend / regen-support proxy
-    - in heavy automatic braking windows both frames move together, consistent with regen plus mechanical braking being coordinated from one higher-level decel request
-  - modern confirmation route:
-    - `000000e9--f69facea42--0`
-    - confirms a full modern sequence of:
-      - ACC engage and set-speed raise
-      - TJA active
-      - TJA off while ACC remains active
-      - strong stock automatic deceleration
-      - TJA re-entry
-      - final lane/camera degradation exit
-    - confirms again:
-      - `0/131 + 0/135` as stock ACC/TJA state
-      - `1/59` as the best stock longitudinal powertrain-intent proxy
-      - `1/54` as the best stock brake-blend / regen-support proxy
-- Confirmed stock TJA reverse helpers from historical FlexRay-only routes:
-  - `FlexRay 24/112` = primary lateral helper
-  - `FlexRay 23/116` = secondary lateral helper
-  - `FlexRay 23/275` = confirmation/helper frame
-  - on the modern dual-FlexRay interface these same frames are present on `src 1`
-  - first bit-level result: `112.byte5 bit5` best separates manual/off from assisted steering
-  - modern lateral TX candidate:
-    - `FlexRay 0/72`
-    - modern routes `000000e9` and `000000ea` strongly suggest this is the stock steering-control transmit family
-    - useful content appears in odd phase subframes only
-    - in those odd phase subframes:
-      - `byte0` = phase
-      - `byte2` is not the steer command; it is `0xF` high nibble plus a rolling low-nibble counter
-      - `byte8` stays fixed at `0xE0`
-    - `112/116` remain the best lateral RX/state helpers, while `72` remains the best current lateral TX container candidate
-    - current status:
-      - TX frame family localized
-      - odd subframe structure localized
-      - actual lateral command payload still unresolved
-  - modern lateral TX payload candidate:
-    - `FlexRay 0/96`
-    - changes coherently during TJA left/right steering windows in `000000e9` and `000000ea`
-    - currently the best candidate for the actual stock lateral TX payload
-    - still not closed enough to derive a reproducible signed steer command
-  - modern confirmation route:
-    - `000000e9--f69facea42--0`
-    - confirms again:
-      - `1/112` as the main lateral-stock state frame
-      - `1/116` as the main lateral-stock support frame
-    - does not yet close a robust left/right steering-sign signal, but clearly confirms assisted vs non-assisted lateral state transitions
+- Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` defaults to `full_experimental`.
+- Confirmed parsed signals: `gear P/D/N/R`, `blinkers`, `seatbelt`, `driver door`, `gasPressed`, `brakePressed`, `cruiseState`, `SET`, `RES`, `ACC`, `TJA`.
+- Vehicle speed now follows the BMW method: `FlexRay 55` primary, `FlexRay 46` fallback.
+- Stock ACC/TJA state is anchored on `FlexRay 0/131` + `0/135`; `1/97` is command/stalk echo only.
+- Best current stock longitudinal proxies: `FlexRay 1/59` = powertrain intent, `FlexRay 1/54` = brake-blend / regen support.
+- Best current stock lateral RX helpers: `FlexRay 1/112` primary, `1/116` secondary, `1/275` confirmation.
+- Best current stock lateral TX mapping: `FlexRay 0/72` = envelope / phase / counter, `FlexRay 0/96` = payload candidate.
+- `72` and `96` are localized, but the final lateral steer command is still not closed.
+- Shadow debug is available and read-only: `bmw_i3_shadow_acc` and `bmw_i3_shadow_long`.
 
 ## Credits
 - CzokNorris: this project builds on CzokNorris's FlexRay reverse-engineering work and the V1 board design. Board reference: `https://oshwlab.com/czoknorris/v1board`
