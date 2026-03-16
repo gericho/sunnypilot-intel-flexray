@@ -25,6 +25,13 @@
 13. Switched current logging profile to `fcamera`-only (qcamera disabled) to keep Cabana route handling deterministic on PC runs.
 14. Added logger queue tuning for encoder bursts (`LOGGERD_ENCODER_QUEUE_LIMIT`) and increased default buffering in `loggerd` to prevent HEVC packet drops during segment rotation.
 15. Tuned HEVC stability settings for PC capture: shorter GOP (keyframe cadence tied to `ROAD_FPS`) and reduced main-road bitrates (`ROAD_MAIN_BITRATE_LOW/HIGH`) to lower encoder pressure.
+16. Fixed BMW i3 startup on PC runs:
+   - `./go.sh` now defaults to `full_experimental`
+   - runtime fingerprinting matches `BMW_I3_EXPERIMENTAL` instead of falling back to `MOCK`
+17. Fixed BMW i3 `carState` runtime compatibility for this fork's schema (`gasPressed` only, no direct `gas` field in `CarState`).
+18. Added a simple live debug tool:
+   - `scripts/bmw_i3_live_monitor.py`
+   - prints `gear`, `blinkers`, `seatbelt`, `door`, `brake`, `gasPressed`, `cruiseState`, and mapped `buttonEvents`
 
 ## FlexRay MITM Mapping
 - Group 1 uses `FR1` and `FR2`.
@@ -67,6 +74,20 @@ This means:
 
 - route replay from `rlog.zst` shows `0`, `1`, `2`
 - live USB in Cabana also shows `0`, `1`, `2`
+
+## BMW i3 Runtime Status
+
+- Runtime fingerprint: `BMW_I3_EXPERIMENTAL`
+- Startup profile: `./go.sh` defaults to `full_experimental`
+- Confirmed mapped signals:
+  - `gear`: `P / D / N / R`
+  - `blinkers`
+  - `seatbelt`
+  - `driver door`
+  - `gasPressed`
+  - `brakePressed`
+  - `cruiseState`
+  - `SET`, `RES`, `ACC`, `TJA`
 
 ## Credits
 - CzokNorris: this project builds on CzokNorris's FlexRay reverse-engineering work and the V1 board design. Board reference: `https://oshwlab.com/czoknorris/v1board`

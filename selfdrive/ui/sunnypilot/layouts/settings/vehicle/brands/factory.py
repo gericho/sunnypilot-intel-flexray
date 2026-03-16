@@ -5,6 +5,7 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.vehicle.brands.base import BrandSettings
+from openpilot.selfdrive.ui.sunnypilot.layouts.settings.vehicle.brands.bmw import BMWSettings
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.vehicle.brands.body import BodySettings
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.vehicle.brands.chrysler import ChryslerSettings
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.vehicle.brands.ford import FordSettings
@@ -24,6 +25,7 @@ from openpilot.selfdrive.ui.sunnypilot.layouts.settings.vehicle.brands.volkswage
 class BrandSettingsFactory:
   _BRAND_MAP: dict[str, type[BrandSettings]] = {
     "body": BodySettings,
+    "bmw": BMWSettings,
     "chrysler": ChryslerSettings,
     "ford": FordSettings,
     "gm": GMSettings,
