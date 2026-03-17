@@ -1,4 +1,5 @@
-# SUNNYPILOT for BMW i3 FlexRay-CAN (Intel PC/OpenCL Build)
+# SUNNYPILOT for BMW i3
+FlexRay-CAN (Intel PC/OpenCL Build)
 
 ![](docs/assets/gericho-i3.jpg)
 
