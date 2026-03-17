@@ -39,7 +39,7 @@ def _normalize_bool(value) -> bool:
 
 def _get_session_options():
   options = ort.SessionOptions()
-  options.intra_op_num_threads = 4
+  options.intra_op_num_threads = int(os.getenv("ORT_INTRA_OP_THREADS", "4"))
   options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
   options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
   return options
