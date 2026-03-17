@@ -117,6 +117,29 @@ Current live bus mapping:
 - `src 1` = FlexRay vehicle side
 - `src 2` = CAN (`CN13`)
 
+## WiFi SOC Realtime Monitoring
+
+Current best live SOC candidates on `src 2` (`CN13`) from parked charging captures are:
+
+- primary candidate: `addr 1074`, `byte 4`, interpreted as `raw / 2`
+  - observed progression across short charge windows:
+    - about `65.5` at user-reported `~65%`
+    - about `67.0` at user-reported `~67%`
+    - about `69.0` at user-reported `~69%`
+  - equivalent raw byte values:
+    - `0x83` -> `131 / 2 = 65.5`
+    - `0x86` -> `134 / 2 = 67.0`
+    - `0x8A` -> `138 / 2 = 69.0`
+
+- secondary candidate: `addr 303`, `byte 2`, interpreted as `raw / 2`
+  - this also tracks the same charging windows reasonably well, but is less consistent than `1074.byte4 / 2`
+
+Practical note:
+
+- when monitoring live over WiFi or route logs, check `1074.byte4 / 2` first
+- keep `303.byte2 / 2` as the backup comparison signal
+- a weaker alternate raw candidate also appeared on `addr 569`, `byte 2`, but it trends high relative to the user-reported SOC and is currently not preferred
+
 ## Pico Host Stack Notes
 
 Matching host components:
