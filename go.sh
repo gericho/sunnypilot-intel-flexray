@@ -63,7 +63,7 @@ export_default WEBCAM_RAW_NV12 0
 export_default WEBCAM_BACKLIGHT_COMPENSATION 3
 export_default WEBCAM_AUTO_EXPOSURE 3
 export_default WEBCAM_EXPOSURE_ABSOLUTE 120
-export_default DISABLE_ENCODERD 1
+export_default DISABLE_ENCODERD 0
 
 case "${RUN_PROFILE}" in
   can_soc_scan)
