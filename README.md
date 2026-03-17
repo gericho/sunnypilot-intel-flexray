@@ -120,6 +120,8 @@ Current live bus mapping:
 
 ## 📶 WiFi SOC Realtime Monitoring
 
+Experimental.
+
 Current best live SOC candidates on `src 2` (`CN13`) from parked charging captures are:
 
 - primary candidate: `addr 1074`, `byte 4`, interpreted as `raw / 2`
