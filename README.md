@@ -117,15 +117,11 @@ Current live bus mapping:
 - `src 1` = FlexRay vehicle side
 - `src 2` = CAN (`CN13`)
 
-## WiFi SOC Realtime Monitoring
+## 📶 WiFi SOC Realtime Monitoring
 
 Current best live SOC candidates on `src 2` (`CN13`) from parked charging captures are:
 
 - primary candidate: `addr 1074`, `byte 4`, interpreted as `raw / 2`
-  - observed progression across short charge windows:
-    - about `65.5` at user-reported `~65%`
-    - about `67.0` at user-reported `~67%`
-    - about `69.0` at user-reported `~69%`
   - equivalent raw byte values:
     - `0x83` -> `131 / 2 = 65.5`
     - `0x86` -> `134 / 2 = 67.0`
