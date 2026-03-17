@@ -35,13 +35,14 @@ cp /etc/OpenCL/vendors/intel.icd "${OPENCL_ICD_DIR}/intel.icd"
 export OCL_ICD_VENDORS="${OPENCL_ICD_DIR}"
 
 # Runtime profiles:
+# - can_soc_scan: logger-only capture for CAN/SOC hunting with encoderd on and modeld off
 # - log_only_stable: fcamera-only logging tuned for reliable Cabana playback on PC
 # - log_modeld: keeps modeld enabled while preserving the stable logging defaults
 # - full_experimental: minimal blocking for broader bring-up/debug sessions
 #
-# Default to the full stack for live bring-up/debug. Use
-# `RUN_PROFILE=log_only_stable ./go.sh` explicitly when you only want route logging.
-export_default RUN_PROFILE full_experimental
+# Default to the CAN/SOC capture stack for this host. Override RUN_PROFILE
+# explicitly when you want a different runtime mix.
+export_default RUN_PROFILE can_soc_scan
 
 export_default DISABLE_BOOTLOG 1
 export_default DISABLE_QCAMERA 1
@@ -56,13 +57,20 @@ export_default ROAD_MAIN_BITRATE_HIGH 3500000
 export_default LOGGERD_ENCODER_QUEUE_LIMIT 1200
 export_default QCAM_BITRATE 120000
 export_default QCAM_FPS 5
-export_default WEBCAM_RAW_NV12 1
+export_default WEBCAM_RAW_NV12 0
 export_default WEBCAM_BACKLIGHT_COMPENSATION 1
-export_default DISABLE_ENCODERD 0
+export_default WEBCAM_AUTO_EXPOSURE 1
+export_default WEBCAM_EXPOSURE_ABSOLUTE 50
+export_default DISABLE_ENCODERD 1
 
 case "${RUN_PROFILE}" in
-  log_only_stable)
+  can_soc_scan)
     export_default DISABLE_MODELD 1
+    export_default DISABLE_ENCODERD 0
+    export_default LOG_ONLY_MODE 1
+    ;;
+  log_only_stable)
+    export_default DISABLE_MODELD 0
     export_default LOG_ONLY_MODE 1
     ;;
   log_modeld)
@@ -70,7 +78,7 @@ case "${RUN_PROFILE}" in
     export_default LOG_ONLY_MODE 1
     ;;
   full_experimental)
-    export_default DISABLE_MODELD 1
+    export_default DISABLE_MODELD 0
     export_default LOG_ONLY_MODE 0
     ;;
   *)
@@ -87,7 +95,7 @@ esac
 #  0 = vertical flip
 #  1 = horizontal flip
 #  none = no flip
-export_default WEBCAM_FLIP none
+export_default WEBCAM_FLIP -1
 
 # PC/webcam mode
 export_default FORCE_ONROAD 1
@@ -106,6 +114,7 @@ export_default PYTHONUNBUFFERED 1
 export PYTHONPATH="$PWD"
 export_default WEBCAM_PROFILE 1
 export_default WEBCAM_PROFILE_INTERVAL 5
+export_default WEBCAM_BACKEND ffmpeg
 
 # Mirror qcamera toggle into a runtime flag file so native daemons can read it reliably.
 if [ "${DISABLE_QCAMERA}" = "1" ]; then
@@ -121,10 +130,10 @@ export_default FINGERPRINT_BUSES 0,1,13,23,24
 #export DRIVER_CAM=4
 
 # Road camera parameters
-export_default ROAD_W 1280
-export_default ROAD_H 720
+export_default ROAD_W 640
+export_default ROAD_H 360
 export_default ROAD_FPS 20
-export_default ROAD_FOURCC NV12 # YUYV NV12 MJPG
+export_default ROAD_FOURCC MJPG # YUYV NV12 MJPG
 
 # Driver camera parameters
 export_default DRIVER_W 640
@@ -160,6 +169,9 @@ fi
 v4l2-ctl -d /dev/video0 --set-fmt-video=width=${ROAD_W},height=${ROAD_H},pixelformat=${ROAD_FOURCC} || true
 v4l2-ctl -d /dev/video0 --set-parm=${ROAD_FPS} || true
 v4l2-ctl -d /dev/video0 --set-ctrl=backlight_compensation=${WEBCAM_BACKLIGHT_COMPENSATION} || true
+v4l2-ctl -d /dev/video0 --set-ctrl=exposure_dynamic_framerate=0 || true
+v4l2-ctl -d /dev/video0 --set-ctrl=auto_exposure=${WEBCAM_AUTO_EXPOSURE} || true
+v4l2-ctl -d /dev/video0 --set-ctrl=exposure_time_absolute=${WEBCAM_EXPOSURE_ABSOLUTE} || true
 
 # Disable autofocus (Logitech BRIO only)
 v4l2-ctl -d /dev/video0 --set-ctrl=focus_automatic_continuous=0 || true

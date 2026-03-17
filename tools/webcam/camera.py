@@ -1,4 +1,5 @@
 import os
+import subprocess
 import time
 
 import cv2 as cv
@@ -13,10 +14,9 @@ class Camera:
     self.cam_type_state = cam_type_state
     self.stream_type = stream_type
     self.cur_frame_id = 0
+    self.ffmpeg_proc = None
 
     print(f"Opening {cam_type_state} at {camera_id}")
-
-    self.cap = cv.VideoCapture(camera_id)
 
     # Use per-camera env settings from go.sh when available.
     if cam_type_state == "driverCameraState":
@@ -36,17 +36,39 @@ class Camera:
       fourcc = os.getenv("ROAD_FOURCC", "NV12").strip().upper()
 
     self.fps = fps
+    self.camera_id = camera_id
+    self.device_path = camera_id if isinstance(camera_id, str) and str(camera_id).startswith("/dev/video") else f"/dev/video{camera_id}" if isinstance(camera_id, int) else None
+    self.backend = os.getenv("WEBCAM_BACKEND", "opencv").strip().lower()
+    if cam_type_state != "roadCameraState" and self.backend == "ffmpeg":
+      self.backend = "opencv"
+    self.cap = None
+    self._requested_w = int(w)
+    self._requested_h = int(h)
+    self._requested_fps = int(fps)
+    self._requested_fourcc = fourcc
 
-    if len(fourcc) == 4:
-      self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*fourcc))
-    self.cap.set(cv.CAP_PROP_FRAME_WIDTH, w)
-    self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, h)
-    self.cap.set(cv.CAP_PROP_FPS, fps)
-
-    self.W = self.cap.get(cv.CAP_PROP_FRAME_WIDTH)
-    self.H = self.cap.get(cv.CAP_PROP_FRAME_HEIGHT)
-    self.w_int = int(self.W)
-    self.h_int = int(self.H)
+    self._apply_v4l2_controls(int(w), int(h), int(fps), fourcc)
+    if self.backend == "ffmpeg":
+      self.w_int = int(w)
+      self.h_int = int(h)
+      negotiated_fps = fps
+      self.W = float(self.w_int)
+      self.H = float(self.h_int)
+    else:
+      self.cap = cv.VideoCapture(camera_id, cv.CAP_V4L2)
+      if not self.cap.isOpened():
+        self.cap = cv.VideoCapture(camera_id)
+      self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
+      if len(fourcc) == 4:
+        self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*fourcc))
+      self.cap.set(cv.CAP_PROP_FRAME_WIDTH, w)
+      self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, h)
+      self.cap.set(cv.CAP_PROP_FPS, fps)
+      self.W = self.cap.get(cv.CAP_PROP_FRAME_WIDTH)
+      self.H = self.cap.get(cv.CAP_PROP_FRAME_HEIGHT)
+      negotiated_fps = self.cap.get(cv.CAP_PROP_FPS)
+      self.w_int = int(self.W)
+      self.h_int = int(self.H)
     self.nv12_backend = os.getenv("WEBCAM_NV12_BACKEND", "opencv").strip().lower()
     self.flip_mode = os.getenv("WEBCAM_FLIP", "-1").strip().lower()
     self.flip_code = None if self.flip_mode in ("none", "off", "") else int(self.flip_mode)
@@ -55,15 +77,36 @@ class Camera:
     self._raw_nv12_active = False
     self._raw_nv12_probed = False
 
+    print(f"[webcamerad:{cam_type_state}] requested={int(w)}x{int(h)}@{fps:g} {fourcc} negotiated={self.w_int}x{self.h_int}@{negotiated_fps:g} backend={self.backend}")
+
     # Fast path: if backend can deliver NV12 raw frames, skip BGR->NV12 conversion.
     # Flip on raw NV12 is not handled here, so keep RGB conversion when flip is requested.
-    if self.raw_nv12_enabled and self.flip_code is None:
+    if self.cap is not None and self.raw_nv12_enabled and self.flip_code is None:
       self.cap.set(cv.CAP_PROP_CONVERT_RGB, 0)
 
     self._frame_w = 0
     self._frame_h = 0
     self._nv12_buf = None
     self._uv_buf = None
+
+  def _apply_v4l2_controls(self, w: int, h: int, fps: int, fourcc: str) -> None:
+    if not self.device_path:
+      return
+    auto_exposure = os.getenv("WEBCAM_AUTO_EXPOSURE", "1").strip()
+    exposure_absolute = os.getenv("WEBCAM_EXPOSURE_ABSOLUTE", "50").strip()
+    cmds = [
+      ["v4l2-ctl", "-d", self.device_path, f"--set-fmt-video=width={w},height={h},pixelformat={fourcc}"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-parm={fps}"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=backlight_compensation=1"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=exposure_dynamic_framerate=0"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=auto_exposure={auto_exposure}"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=exposure_time_absolute={exposure_absolute}"],
+    ]
+    for cmd in cmds:
+      try:
+        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+      except Exception:
+        pass
 
   def _is_nv12_frame(self, frame):
     if frame is None or frame.dtype != np.uint8:
@@ -105,7 +148,85 @@ class Camera:
       return self._bgr2nv12_legacy(bgr)
     return self._bgr2nv12_opencv(bgr)
 
+  def _open_ffmpeg(self):
+    if self.ffmpeg_proc is not None or not self.device_path:
+      return
+    vf = None
+    if self.flip_code == -1:
+      vf = "hflip,vflip"
+    elif self.flip_code == 0:
+      vf = "vflip"
+    elif self.flip_code == 1:
+      vf = "hflip"
+    cmd = [
+      "ffmpeg",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-fflags",
+      "nobuffer",
+      "-flags",
+      "low_delay",
+      "-f",
+      "v4l2",
+      "-input_format",
+      "mjpeg" if self._requested_fourcc == "MJPG" else self._requested_fourcc.lower(),
+      "-framerate",
+      str(self._requested_fps),
+      "-video_size",
+      f"{self._requested_w}x{self._requested_h}",
+      "-i",
+      self.device_path,
+    ]
+    if vf is not None:
+      cmd += [
+        "-vf",
+        vf,
+      ]
+    cmd += [
+      "-pix_fmt",
+      "nv12",
+      "-f",
+      "rawvideo",
+      "pipe:1",
+    ]
+    self.ffmpeg_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=self._requested_w * self._requested_h * 3)
+
+  def _read_ffmpeg_nv12(self):
+    self._open_ffmpeg()
+    if self.ffmpeg_proc is None or self.ffmpeg_proc.stdout is None:
+      return
+    frame_size = self.w_int * self.h_int * 3 // 2
+    while True:
+      t0 = time.perf_counter() if self.profile else 0.0
+      data = self.ffmpeg_proc.stdout.read(frame_size)
+      read_ms = (time.perf_counter() - t0) * 1000.0 if self.profile else 0.0
+      if len(data) != frame_size:
+        break
+      if not self._raw_nv12_probed:
+        self._raw_nv12_probed = True
+        self._raw_nv12_active = True
+        print(f"[webcamerad:{self.cam_type_state}] raw_nv12=active")
+      payload = memoryview(data)
+      if self.profile:
+        yield payload, {
+          "read_ms": read_ms,
+          "flip_ms": 0.0,
+          "convert_ms": 0.0,
+          "payload_ms": 0.0,
+        }
+      else:
+        yield payload, None
+
   def read_frames(self):
+    if self.backend == "ffmpeg":
+      yield from self._read_ffmpeg_nv12()
+      if self.ffmpeg_proc is not None:
+        self.ffmpeg_proc.terminate()
+        self.ffmpeg_proc.wait(timeout=2)
+        self.ffmpeg_proc = None
+      return
+
     while True:
       t0 = time.perf_counter() if self.profile else 0.0
       ret, frame = self.cap.read()
