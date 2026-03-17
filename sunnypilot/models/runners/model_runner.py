@@ -192,3 +192,7 @@ class ModelRunner(ModularRunner):
     :return: Dictionary containing the final parsed model outputs.
     """
     return self._run_model()  # Parsing is handled within specific runner implementations
+
+  def warmup(self) -> None:
+    """Optional runner-specific warmup hook."""
+    return None

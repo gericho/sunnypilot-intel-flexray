@@ -58,6 +58,9 @@ class ModelState(ModelStateBase):
     ModelStateBase.__init__(self)
     try:
       self.model_runner = get_model_runner()
+      warmup_t0 = time.perf_counter()
+      self.model_runner.warmup()
+      self.warmup_ms = (time.perf_counter() - warmup_t0) * 1000.0
       self.constants = self.model_runner.constants
     except Exception as e:
       cloudlog.exception(f"Failed to initialize model runner: {str(e)}")
@@ -217,6 +220,7 @@ def main(demo=False):
   cl_context = CLContext()
   cloudlog.warning("CL context ready; loading model")
   model = ModelState(cl_context)
+  cloudlog.warning(f"model runner warmup complete in {getattr(model, 'warmup_ms', 0.0):.2f} ms")
   cloudlog.warning("models loaded, modeld starting")
 
   # visionipc clients

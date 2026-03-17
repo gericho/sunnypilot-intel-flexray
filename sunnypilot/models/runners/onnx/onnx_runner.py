@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import os
 import time
 
 from openpilot.sunnypilot.modeld_v2.constants import ModelConstants
@@ -33,6 +34,18 @@ class ONNXModelRunner(ModelRunner, SupercomboTinygrad, PolicyTinygrad, VisionTin
       "cl_to_numpy_ms": 0.0,
       "onnx_run_ms": 0.0,
     }
+
+  def warmup(self) -> None:
+    warmup_runs = int(os.getenv("ORT_WARMUP_RUNS", "2"))
+    if warmup_runs <= 0:
+      return
+    dummy_inputs = {}
+    for model_input in self.runner.get_inputs():
+      dtype = ORT_TYPES_TO_NP_TYPES[model_input.type]
+      shape = tuple(int(x) for x in model_input.shape)
+      dummy_inputs[model_input.name] = np.zeros(shape, dtype=dtype)
+    for _ in range(warmup_runs):
+      self.runner.run(None, dummy_inputs)
 
   def _get_onnx_path(self) -> Path:
     artifact_path = Path(getattr(self._model_data.model.artifact, "path", ""))
@@ -106,6 +119,12 @@ class ONNXSplitRunner(ModelRunner):
       "prepare_inputs_ms": 0.0,
       "onnx_run_ms": 0.0,
     }
+
+  def warmup(self) -> None:
+    self.policy_runner.warmup()
+    self.vision_runner.warmup()
+    if self.off_policy_runner:
+      self.off_policy_runner.warmup()
 
   def _run_model(self) -> NumpyDict:
     t0 = time.perf_counter()
