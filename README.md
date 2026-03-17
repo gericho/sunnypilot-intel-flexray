@@ -168,7 +168,7 @@ This means:
 - Stock ACC/TJA state is anchored on `FlexRay 0/131` + `0/135`; `1/97` is command/stalk echo only.
 - Best current stock longitudinal proxies: `FlexRay 1/59` = powertrain intent, `FlexRay 1/54` = brake-blend / regen support.
 - Best current stock lateral RX helpers: `FlexRay 1/112` primary, `1/116` secondary, `1/275` confirmation.
-- Best current stock lateral TX mapping: `FlexRay 0/72` = envelope / phase / counter, `FlexRay 0/96` = payload candidate.
+- Best current stock lateral TX localization: `FlexRay 0/72` = envelope / phase / counter, `FlexRay 0/96` = payload candidate.
 - `72` and `96` are localized, but the final lateral steer command is still not closed.
 - Shadow debug is available and read-only: `bmw_i3_shadow_acc` and `bmw_i3_shadow_long`.
 
