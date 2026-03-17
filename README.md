@@ -25,11 +25,11 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
 10. Added robust webcam format handling (including YUYV fallback conversion) and runtime stage profiling output.
 11. Switched webcam publish timing to monotonic nanosecond timestamps for improved playback/signal synchronization.
 12. Switched the PC inference path to `modeld_tinygrad` with ONNX Runtime + OpenVINO on the Intel iGPU; OpenCL remains used only for vision transform/buffer handling and CL context setup, not as the primary inference backend.
-13. Switched current logging profile to `fcamera`-only (qcamera disabled) to keep Cabana route handling deterministic on PC runs.
+13. Added PC runtime profiles and kept `qcamera` disabled by default to keep Cabana route handling deterministic on PC runs.
 14. Added logger queue tuning for encoder bursts (`LOGGERD_ENCODER_QUEUE_LIMIT`) and increased default buffering in `loggerd` to prevent HEVC packet drops during segment rotation.
 15. Tuned HEVC stability settings for PC capture: shorter GOP (keyframe cadence tied to `ROAD_FPS`) and reduced main-road bitrates (`ROAD_MAIN_BITRATE_LOW/HIGH`) to lower encoder pressure.
 16. Fixed BMW i3 startup on PC runs:
-   - `./go.sh` now defaults to `full_experimental`
+   - `./go.sh` exposes dedicated runtime profiles (`can_soc_scan`, `log_only_stable`, `log_modeld`, `full_experimental`)
    - runtime fingerprinting matches `BMW_I3_EXPERIMENTAL` instead of falling back to `MOCK`
 17. Fixed BMW i3 `carState` runtime compatibility for this fork's schema (`gasPressed` only, no direct `gas` field in `CarState`).
 18. Added a simple live debug tool:
@@ -164,9 +164,9 @@ This means:
 
 ## BMW i3 Runtime Status
 
-- Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` defaults to `full_experimental`.
-- Current PC runtime path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
-- Current camera path: `ffmpeg` capture, `640x360`, `NV12`, `20 fps`.
+- Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` currently defaults to the logger-focused `can_soc_scan` profile.
+- Current tuned onroad path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
+- Current tuned road-camera path: `ffmpeg` capture, `640x360`, `NV12`, `20 fps`.
 - OpenCL is still used for the vision transform/buffer path before inference; inference itself is OpenVINO, not OpenCL.
 - Confirmed parsed signals: `gear P/D/N/R`, `blinkers`, `seatbelt`, `driver door`, `gasPressed`, `brakePressed`, `cruiseState`, `SET`, `RES`, `ACC`, `TJA`.
 - Vehicle speed now follows the BMW method: `FlexRay 55` primary, `FlexRay 46` fallback.
