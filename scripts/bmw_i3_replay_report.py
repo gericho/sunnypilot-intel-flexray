@@ -66,7 +66,13 @@ def main() -> int:
 
   first_ts = None
   last_sec = -1
+  last_mode = None
+  mode_start_sec = 0
+  mode_gate = None
+  mode_state = None
 
+  print("# state_transitions")
+  print("# start_sec end_sec gate131 state135 mode")
   print("# sec gate131 state135 lat72(phase,cnt,flag) lat96(b0,b1,b2,b3,b4) long59(wb,wc,b3,b5) long54(wb,wc,b4,b6)")
 
   for evt in LogReader(route_to_rlog(route), only_union_types=True):
@@ -106,6 +112,35 @@ def main() -> int:
         state["long54_b6"] = dat[6]
 
     if sec != last_sec and sec >= 0:
+      gate = state["gate131"]
+      main = state["state135"]
+      if gate is None or main is None:
+        mode = None
+      elif gate == 643 and main == 35041:
+        mode = "OFF"
+      elif gate == 3584 and main == 16610:
+        mode = "ACC_BASE"
+      elif gate in (640, 656) and main == 24802:
+        mode = "MANAGED"
+      elif gate in (640, 656) and main not in (None, 24802):
+        mode = f"TRANSITION({main})"
+      else:
+        mode = "UNKNOWN"
+
+      if mode is None:
+        pass
+      elif last_mode is None:
+        last_mode = mode
+        mode_start_sec = sec
+        mode_gate = gate
+        mode_state = main
+      elif mode != last_mode:
+        print(f"# {mode_start_sec:4d} {sec - 1:4d} {mode_gate} {mode_state} {last_mode}")
+        last_mode = mode
+        mode_start_sec = sec
+        mode_gate = gate
+        mode_state = main
+
       def f(key):
         v = state[key]
         return "-" if v is None else str(v)
@@ -119,6 +154,9 @@ def main() -> int:
         f"({f('long54_wb')},{f('long54_wc')},{f('long54_b4')},{f('long54_b6')})"
       )
       last_sec = sec
+
+  if last_mode is not None and last_sec >= mode_start_sec:
+    print(f"# {mode_start_sec:4d} {last_sec:4d} {mode_gate} {mode_state} {last_mode}")
 
   return 0
 
