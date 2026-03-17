@@ -3,7 +3,7 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
 
 > Disclaimer: this repository is under heavy development and must currently be considered `BROKEN`. It is not usable as a stable driving build.
 
-![](docs/assets/GerichoSunnypiloti3.png)
+![](docs/assets/GerichoSunnypiloti3.jpg)
 
 ## 🤖 Technical Delta Summary
 > **Status:** Work in progress. The Pico FlexRay + CAN transport path is currently working on the Czok V1 setup.
