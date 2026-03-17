@@ -268,6 +268,10 @@ Your continuous love and support are greatly appreciated! Enjoy 🥰
 - Summarize a route second-by-second for `131/135`, `72/96`, and `59/54` with:
   - `python scripts/bmw_i3_replay_report.py /path/to/route-or-rlog`
   - omit the path to use the latest route automatically
+- Compare shadow lateral logs against real `72/96` route data with:
+  - `python scripts/compare_bmw_i3_shadow_lat.py /path/to/route --swaglog /path/to/swaglog`
+- Compare shadow longitudinal logs against real `59/54` route data with:
+  - `python scripts/compare_bmw_i3_shadow_long.py /path/to/route --swaglog /path/to/swaglog`
 - Run both shadow-log extraction and replay summary together with:
   - `python scripts/bmw_i3_offline_bundle.py`
 
