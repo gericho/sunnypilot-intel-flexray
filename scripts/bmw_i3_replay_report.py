@@ -119,7 +119,7 @@ def main() -> int:
       elif gate == 643 and main == 35041:
         mode = "OFF"
       elif gate == 3584 and main == 16610:
-        mode = "ACC_BASE"
+        mode = "ACC_ARMED"
       elif gate in (640, 656) and main == 24802:
         mode = "MANAGED"
       elif gate in (640, 656) and main not in (None, 24802):

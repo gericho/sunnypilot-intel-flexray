@@ -35,8 +35,8 @@ FlexRay-CAN (Intel PC/OpenCL Build)
    - prints `gear`, `blinkers`, `seatbelt`, `door`, `brake`, `gasPressed`, `cruiseState`, and mapped `buttonEvents`
 19. Refined stock ACC reverse-engineering on modern BMW i3 routes:
    - primary longitudinal stock-state helpers are now `FlexRay 0/131` and `0/135`
-   - `0/131` separates `OFF (643)`, `ACC base active (3584)`, and managed/following states (`640/656`)
-   - `0/135` separates `OFF (35041)`, `ACC base active (16610)`, and managed/following assist state (`24802`)
+   - `0/131` separates `OFF (643)`, `ACC base armed/ready (3584)`, and managed/following states (`640/656`)
+   - `0/135` separates `OFF (35041)`, `ACC base armed/ready (16610)`, and managed/following assist state (`24802`)
    - `FlexRay 1/97` remains useful as a command/stalk transition frame, not as the stable ACC state
   - for stock longitudinal content, the current best candidates are:
      - `FlexRay 1/59` = strongest pedal/hold/coast-state candidate
