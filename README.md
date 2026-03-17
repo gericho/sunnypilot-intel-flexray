@@ -1,6 +1,6 @@
 # SUNNYPILOT for BMW i3 FlexRay-CAN (Intel PC/OpenCL Build)
 
-![](https://user-images.githubusercontent.com/47793918/233812617-beab2e71-57b9-479e-8bff-c3931347ca40.png)
+![](docs/assets/gericho-i3.jpg)
 
 ## 🤖 Technical Delta Summary
 > **Status:** Work in progress. The Pico FlexRay + CAN transport path is currently working on the Czok V1 setup.
