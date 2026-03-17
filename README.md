@@ -267,6 +267,7 @@ Your continuous love and support are greatly appreciated! Enjoy 🥰
   - `python scripts/extract_bmw_i3_shadow_logs.py /home/gericho/.comma/log/swaglog.0000000000`
 - Summarize a route second-by-second for `131/135`, `72/96`, and `59/54` with:
   - `python scripts/bmw_i3_replay_report.py /path/to/route-or-rlog`
+  - omit the path to use the latest route automatically
 
 ## Credits
 - CzokNorris: FlexRay reverse-engineering groundwork and V1 board design reference, `https://oshwlab.com/czoknorris/v1board`

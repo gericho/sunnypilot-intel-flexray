@@ -4,9 +4,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+from typing import Optional
 
 sys.path.insert(0, "/home/gericho/sunnypilot")
 from opendbc.car.logreader import LogReader
+
+
+def resolve_latest_route() -> Optional[Path]:
+  root = Path("/home/gericho/.comma/media/0/realdata")
+  candidates = sorted(root.glob("*--0"), key=lambda p: p.stat().st_mtime, reverse=True)
+  return candidates[0] if candidates else None
 
 
 def route_to_rlog(route: str) -> str:
@@ -24,8 +31,17 @@ def u16_le(dat: bytes, off: int) -> int:
 
 def main() -> int:
   ap = argparse.ArgumentParser(description="Second-by-second BMW i3 replay summary for shadow/debug correlation")
-  ap.add_argument("route", help="route dir or rlog.zst path")
+  ap.add_argument("route", nargs="?", help="route dir or rlog.zst path; omit to use latest route")
   args = ap.parse_args()
+
+  route = args.route
+  if route is None:
+    latest = resolve_latest_route()
+    if latest is None:
+      raise FileNotFoundError("no routes found in /home/gericho/.comma/media/0/realdata")
+    route = str(latest)
+
+  print(f"# route {route}")
 
   state = {
     "gate131": None,
@@ -53,7 +69,7 @@ def main() -> int:
 
   print("# sec gate131 state135 lat72(phase,cnt,flag) lat96(b0,b1,b2,b3,b4) long59(wb,wc,b3,b5) long54(wb,wc,b4,b6)")
 
-  for evt in LogReader(route_to_rlog(args.route), only_union_types=True):
+  for evt in LogReader(route_to_rlog(route), only_union_types=True):
     if evt.which() != "can":
       continue
 
