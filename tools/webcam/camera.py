@@ -46,8 +46,8 @@ class Camera:
     self._requested_h = int(h)
     self._requested_fps = int(fps)
     self._requested_fourcc = fourcc
+    self._controls_applied = False
 
-    self._apply_v4l2_controls(int(w), int(h), int(fps), fourcc)
     if self.backend == "ffmpeg":
       self.w_int = int(w)
       self.h_int = int(h)
@@ -58,6 +58,7 @@ class Camera:
       self.cap = cv.VideoCapture(camera_id, cv.CAP_V4L2)
       if not self.cap.isOpened():
         self.cap = cv.VideoCapture(camera_id)
+      self._apply_v4l2_controls(int(w), int(h), int(fps), fourcc)
       self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
       if len(fourcc) == 4:
         self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*fourcc))
@@ -90,14 +91,15 @@ class Camera:
     self._uv_buf = None
 
   def _apply_v4l2_controls(self, w: int, h: int, fps: int, fourcc: str) -> None:
-    if not self.device_path:
+    if not self.device_path or self._controls_applied:
       return
     auto_exposure = os.getenv("WEBCAM_AUTO_EXPOSURE", "1").strip()
     exposure_absolute = os.getenv("WEBCAM_EXPOSURE_ABSOLUTE", "50").strip()
+    backlight = os.getenv("WEBCAM_BACKLIGHT_COMPENSATION", "1").strip()
     cmds = [
       ["v4l2-ctl", "-d", self.device_path, f"--set-fmt-video=width={w},height={h},pixelformat={fourcc}"],
       ["v4l2-ctl", "-d", self.device_path, f"--set-parm={fps}"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=backlight_compensation=1"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=backlight_compensation={backlight}"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=exposure_dynamic_framerate=0"],
       ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=auto_exposure={auto_exposure}"],
       ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=exposure_time_absolute={exposure_absolute}"],
@@ -107,6 +109,7 @@ class Camera:
         subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
       except Exception:
         pass
+    self._controls_applied = True
 
   def _is_nv12_frame(self, frame):
     if frame is None or frame.dtype != np.uint8:
@@ -151,6 +154,7 @@ class Camera:
   def _open_ffmpeg(self):
     if self.ffmpeg_proc is not None or not self.device_path:
       return
+    self._apply_v4l2_controls(self._requested_w, self._requested_h, self._requested_fps, self._requested_fourcc)
     vf = None
     if self.flip_code == -1:
       vf = "hflip,vflip"

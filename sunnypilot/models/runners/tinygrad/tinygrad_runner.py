@@ -37,7 +37,7 @@ class TinygradRunner(ModelRunner, SupercomboTinygrad, PolicyTinygrad, VisionTiny
     assert artifact_filename.endswith('_tinygrad.pkl'), \
       f"Invalid model file {artifact_filename} for TinygradRunner"
 
-    model_pkl_path = f"{CUSTOM_MODEL_PATH}/{artifact_filename}"
+    model_pkl_path = getattr(self._model_data.model.artifact, "path", f"{CUSTOM_MODEL_PATH}/{artifact_filename}")
     with open(model_pkl_path, "rb") as f:
       try:
         # Load the compiled Tinygrad model runner function

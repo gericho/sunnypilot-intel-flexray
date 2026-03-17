@@ -1,7 +1,7 @@
 # SUNNYPILOT for BMW i3
-FlexRay-CAN (Intel PC/OpenCL Build)
+FlexRay-CAN (Intel PC/OpenVINO Build)
 
-![](docs/assets/gericho-i3.jpg)
+![](docs/assets/Gemini_Generated_Image_pow61fpow61fpow6.png)
 
 ## 🤖 Technical Delta Summary
 > **Status:** Work in progress. The Pico FlexRay + CAN transport path is currently working on the Czok V1 setup.
@@ -22,7 +22,7 @@ FlexRay-CAN (Intel PC/OpenCL Build)
 9. Optimized the webcam pipeline with a raw NV12 fast path (`WEBCAM_RAW_NV12`) and camera FOURCC control from env.
 10. Added robust webcam format handling (including YUYV fallback conversion) and runtime stage profiling output.
 11. Switched webcam publish timing to monotonic nanosecond timestamps for improved playback/signal synchronization.
-12. Enforced Intel OpenCL execution for models (`DEV=CL` + Intel ICD-only `OCL_ICD_VENDORS`) to avoid CPU OpenCL fallback.
+12. Switched the PC inference path to `modeld_tinygrad` with ONNX Runtime + OpenVINO on the Intel iGPU; OpenCL remains used only for vision transform/buffer handling and CL context setup, not as the primary inference backend.
 13. Switched current logging profile to `fcamera`-only (qcamera disabled) to keep Cabana route handling deterministic on PC runs.
 14. Added logger queue tuning for encoder bursts (`LOGGERD_ENCODER_QUEUE_LIMIT`) and increased default buffering in `loggerd` to prevent HEVC packet drops during segment rotation.
 15. Tuned HEVC stability settings for PC capture: shorter GOP (keyframe cadence tied to `ROAD_FPS`) and reduced main-road bitrates (`ROAD_MAIN_BITRATE_LOW/HIGH`) to lower encoder pressure.
@@ -163,6 +163,9 @@ This means:
 ## BMW i3 Runtime Status
 
 - Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` defaults to `full_experimental`.
+- Current PC runtime path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
+- Current camera path: `ffmpeg` capture, `640x360`, `NV12`, `20 fps`.
+- OpenCL is still used for the vision transform/buffer path before inference; inference itself is OpenVINO, not OpenCL.
 - Confirmed parsed signals: `gear P/D/N/R`, `blinkers`, `seatbelt`, `driver door`, `gasPressed`, `brakePressed`, `cruiseState`, `SET`, `RES`, `ACC`, `TJA`.
 - Vehicle speed now follows the BMW method: `FlexRay 55` primary, `FlexRay 46` fallback.
 - Stock ACC/TJA state is anchored on `FlexRay 0/131` + `0/135`; `1/97` is command/stalk echo only.
@@ -170,6 +173,7 @@ This means:
 - Best current stock lateral RX helpers: `FlexRay 1/112` primary, `1/116` secondary, `1/275` confirmation.
 - Best current stock lateral TX localization: `FlexRay 0/72` = envelope / phase / counter, `FlexRay 0/96` = payload candidate.
 - `72` and `96` are localized, but the final lateral steer command is still not closed.
+- Current profiling on this PC shows the dominant cost is vision inference latency, not webcam capture, color conversion, rotation, or CL-to-numpy copy.
 - Shadow debug is available and read-only: `bmw_i3_shadow_acc` and `bmw_i3_shadow_long`.
 
 ## Credits

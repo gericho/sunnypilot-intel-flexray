@@ -65,7 +65,7 @@ class ModelState(ModelStateBase):
 
     model_bundle = get_active_bundle()
     self.generation = model_bundle.generation if model_bundle is not None else None
-    overrides = {override.key: override.value for override in model_bundle.overrides}
+    overrides = {override.key: override.value for override in model_bundle.overrides} if model_bundle is not None else {}
 
     self.LAT_SMOOTH_SECONDS = float(overrides.get('lat', ".0"))
     self.LONG_SMOOTH_SECONDS = float(overrides.get('long', ".0"))
@@ -99,6 +99,16 @@ class ModelState(ModelStateBase):
           elif shape[1] >= 99:  # non20hz
             self.temporal_idxs_map[key] = np.arange(shape[1])
           self.temporal_buffers[key] = np.zeros((1, buffer_history_len, feature_len), dtype=np.float32)
+    self.profile_stats = {
+      "prepare_cl_ms": 0.0,
+      "prepare_inputs_ms": 0.0,
+      "runner_onnx_ms": 0.0,
+      "cl_to_numpy_ms": 0.0,
+      "numpy_inputs_ms": 0.0,
+      "policy_onnx_ms": 0.0,
+      "vision_onnx_ms": 0.0,
+      "off_policy_onnx_ms": 0.0,
+    }
 
   @property
   def mlsim(self) -> bool:
@@ -129,16 +139,29 @@ class ModelState(ModelStateBase):
       if key in inputs and key not in [self.desire_key]:
         self.numpy_inputs[key][:] = inputs[key]
 
+    t0 = time.perf_counter()
     imgs_cl = {name: self.frames[name].prepare(bufs[name], transforms[name].flatten()) for name in self.model_runner.vision_input_names}
+    t1 = time.perf_counter()
 
     # Prepare inputs using the model runner
     self.model_runner.prepare_inputs(imgs_cl, self.numpy_inputs, self.frames)
+    t2 = time.perf_counter()
 
     if prepare_only:
+      self.profile_stats["prepare_cl_ms"] = (t1 - t0) * 1000.0
+      self.profile_stats["prepare_inputs_ms"] = (t2 - t1) * 1000.0
+      for key, value in getattr(self.model_runner, "profile_stats", {}).items():
+        self.profile_stats[key] = value
       return None
 
     # Run model inference
     outputs = self.model_runner.run_model()
+    t3 = time.perf_counter()
+    self.profile_stats["prepare_cl_ms"] = (t1 - t0) * 1000.0
+    self.profile_stats["prepare_inputs_ms"] = (t2 - t1) * 1000.0
+    self.profile_stats["runner_onnx_ms"] = (t3 - t2) * 1000.0
+    for key, value in getattr(self.model_runner, "profile_stats", {}).items():
+      self.profile_stats[key] = value
 
     # Update features_buffer
     self.temporal_buffers['features_buffer'][0, :-1] = self.temporal_buffers['features_buffer'][0, 1:]
@@ -231,6 +254,7 @@ def main(demo=False):
   frame_id = 0
   last_vipc_frame_id = 0
   run_count = 0
+  last_profile_log = 0.0
 
   model_transform_main = np.zeros((3, 3), dtype=np.float32)
   model_transform_extra = np.zeros((3, 3), dtype=np.float32)
@@ -340,6 +364,7 @@ def main(demo=False):
     model_execution_time = mt2 - mt1
 
     if model_output is not None:
+      pub_t0 = time.perf_counter()
       modelv2_send = messaging.new_message('modelV2')
       drivingdata_send = messaging.new_message('drivingModelData')
       posenet_send = messaging.new_message('cameraOdometry')
@@ -367,6 +392,25 @@ def main(demo=False):
       pm.send('drivingModelData', drivingdata_send)
       pm.send('cameraOdometry', posenet_send)
       pm.send('modelDataV2SP', mdv2sp_send)
+      publish_ms = (time.perf_counter() - pub_t0) * 1000.0
+      now = time.monotonic()
+      if now - last_profile_log >= 5.0:
+        ps = model.profile_stats
+        cloudlog.warning(
+          "modeld_v2_profile "
+          f"prepare_cl_ms={ps.get('prepare_cl_ms', 0.0):.2f} "
+          f"prepare_inputs_ms={ps.get('prepare_inputs_ms', 0.0):.2f} "
+          f"numpy_inputs_ms={ps.get('numpy_inputs_ms', 0.0):.2f} "
+          f"cl_to_numpy_ms={ps.get('cl_to_numpy_ms', 0.0):.2f} "
+          f"runner_onnx_ms={ps.get('runner_onnx_ms', 0.0):.2f} "
+          f"policy_onnx_ms={ps.get('policy_onnx_ms', 0.0):.2f} "
+          f"vision_onnx_ms={ps.get('vision_onnx_ms', 0.0):.2f} "
+          f"off_policy_onnx_ms={ps.get('off_policy_onnx_ms', 0.0):.2f} "
+          f"publish_ms={publish_ms:.2f} "
+          f"exec_ms={model_execution_time * 1000.0:.2f} "
+          f"dropped={vipc_dropped_frames}"
+        )
+        last_profile_log = now
     last_vipc_frame_id = meta_main.frame_id
 
 

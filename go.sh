@@ -60,9 +60,9 @@ export_default LOGGERD_ENCODER_QUEUE_LIMIT 1200
 export_default QCAM_BITRATE 120000
 export_default QCAM_FPS 5
 export_default WEBCAM_RAW_NV12 0
-export_default WEBCAM_BACKLIGHT_COMPENSATION 1
-export_default WEBCAM_AUTO_EXPOSURE 1
-export_default WEBCAM_EXPOSURE_ABSOLUTE 80
+export_default WEBCAM_BACKLIGHT_COMPENSATION 3
+export_default WEBCAM_AUTO_EXPOSURE 3
+export_default WEBCAM_EXPOSURE_ABSOLUTE 120
 export_default DISABLE_ENCODERD 1
 
 case "${RUN_PROFILE}" in
@@ -116,9 +116,19 @@ export_default PYTHONUNBUFFERED 1
 export PYTHONPATH="$PWD"
 export SDL_VIDEO_WINDOW_POS="${UI_X},${UI_Y}"
 export WINDOW_POS="${UI_X},${UI_Y}"
-export_default WEBCAM_PROFILE 1
+export_default WEBCAM_PROFILE 0
 export_default WEBCAM_PROFILE_INTERVAL 5
 export_default WEBCAM_BACKEND ffmpeg
+export_default FORCE_MODEL_RUNNER tinygrad
+export_default USE_ONNX 1
+export_default ORT_BACKEND openvino
+export_default ORT_OPENVINO_DEVICE GPU
+export_default ORT_OPENVINO_FALLBACK_CPU 1
+export_default ORT_OPENVINO_DISABLE_ORT_OPT 1
+export_default ORT_OPENVINO_PERFORMANCE_HINT LATENCY
+export_default ORT_OPENVINO_EXECUTION_MODE PERFORMANCE
+export_default ORT_OPENVINO_NUM_STREAMS 1
+export_default ORT_OPENVINO_CACHE_DIR "$PWD/.cache/openvino_model_cache"
 
 # Mirror qcamera toggle into a runtime flag file so native daemons can read it reliably.
 if [ "${DISABLE_QCAMERA}" = "1" ]; then
@@ -137,7 +147,7 @@ export_default FINGERPRINT_BUSES 0,1,13,23,24
 export_default ROAD_W 640
 export_default ROAD_H 360
 export_default ROAD_FPS 20
-export_default ROAD_FOURCC MJPG # YUYV NV12 MJPG
+export_default ROAD_FOURCC NV12 # YUYV NV12 MJPG
 
 # Driver camera parameters
 export_default DRIVER_W 640
@@ -172,17 +182,6 @@ fi
 if [ -n "$BLOCK_LIST" ]; then
   export BLOCK="$BLOCK_LIST"
 fi
-
-# Configure V4L2 hardware settings (best effort)
-v4l2-ctl -d /dev/video0 --set-fmt-video=width=${ROAD_W},height=${ROAD_H},pixelformat=${ROAD_FOURCC} || true
-v4l2-ctl -d /dev/video0 --set-parm=${ROAD_FPS} || true
-v4l2-ctl -d /dev/video0 --set-ctrl=backlight_compensation=${WEBCAM_BACKLIGHT_COMPENSATION} || true
-v4l2-ctl -d /dev/video0 --set-ctrl=exposure_dynamic_framerate=0 || true
-v4l2-ctl -d /dev/video0 --set-ctrl=auto_exposure=${WEBCAM_AUTO_EXPOSURE} || true
-v4l2-ctl -d /dev/video0 --set-ctrl=exposure_time_absolute=${WEBCAM_EXPOSURE_ABSOLUTE} || true
-
-# Disable autofocus (Logitech BRIO only)
-v4l2-ctl -d /dev/video0 --set-ctrl=focus_automatic_continuous=0 || true
 
 if [ -n "${DRIVER_CAM:-}" ] && [ -e "/dev/video${DRIVER_CAM}" ]; then
   v4l2-ctl -d "/dev/video${DRIVER_CAM}" --set-fmt-video=width=${DRIVER_W},height=${DRIVER_H},pixelformat=${DRIVER_FOURCC} || true

@@ -91,11 +91,14 @@ class SelfdriveD(CruiseHelper):
     if PC:
       self.gps_packets = []
       self.sensor_packets = []
+      self.camera_packets = ["roadCameraState"]
 
     # TODO: de-couple selfdrived with card/conflate on carState without introducing controls mismatches
     self.car_state_sock = messaging.sub_sock('carState', timeout=20)
 
     ignore = self.sensor_packets + self.gps_packets + ['alertDebug'] + ['modelDataV2SP']
+    if PC:
+      ignore += ['driverMonitoringState']
     if SIMULATION:
       ignore += ['driverCameraState', 'managerState']
     if REPLAY:
@@ -219,8 +222,10 @@ class SelfdriveD(CruiseHelper):
     if not self.CP.pcmCruise and CS.vCruise > 250 and resume_pressed:
       self.events.add(EventName.resumeBlocked)
 
-    if not self.CP.notCar:
+    if not self.CP.notCar and not PC:
       self.events.add_from_msg(self.sm['driverMonitoringState'].events)
+      self.events_sp.add_from_msg(self.sm['longitudinalPlanSP'].events)
+    elif not self.CP.notCar:
       self.events_sp.add_from_msg(self.sm['longitudinalPlanSP'].events)
 
     # Add car events, ignore if CAN isn't valid
@@ -349,7 +354,7 @@ class SelfdriveD(CruiseHelper):
     if self.sm.recv_frame['managerState'] and (not_running - self.ignored_processes):
       self.events.add(EventName.processNotRunning)
     else:
-      if not SIMULATION and not self.rk.lagging:
+      if not SIMULATION and not self.rk.lagging and not PC:
         if not self.sm.all_alive(self.camera_packets):
           self.events.add(EventName.cameraMalfunction)
         elif not self.sm.all_freq_ok(self.camera_packets):
@@ -434,7 +439,12 @@ class SelfdriveD(CruiseHelper):
       self.events.add(EventName.fcw)
 
     # GPS checks
-    gps_ok = self.sm.recv_frame[self.gps_location_service] > 0 and (self.sm.frame - self.sm.recv_frame[self.gps_location_service]) * DT_CTRL < 2.0
+    if self.gps_packets and self.gps_location_service in self.sm.recv_frame:
+      gps_ok = self.sm.recv_frame[self.gps_location_service] > 0 and \
+               (self.sm.frame - self.sm.recv_frame[self.gps_location_service]) * DT_CTRL < 2.0
+    else:
+      # PC development runs may not publish a local GPS service at all.
+      gps_ok = True
     if not gps_ok and self.sm['livePose'].inputsOK and (self.distance_traveled > 1500):
       self.events.add(EventName.noGps)
     if gps_ok:

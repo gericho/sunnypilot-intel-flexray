@@ -29,9 +29,9 @@ def main() -> None:
 
   last_state = None
   last_heartbeat = 0.0
-  print("waiting for carState...")
+  print("waiting for carState...", flush=True)
   while True:
-    sm.update()
+    sm.update(100)
     now = time.monotonic()
     if now - last_heartbeat > 2.0:
       print(
@@ -40,7 +40,7 @@ def main() -> None:
         f"carState_alive={int(sm.alive['carState'])} "
         f"pandaStates_updated={int(sm.updated['pandaStates'])} "
         f"pandaStates_alive={int(sm.alive['pandaStates'])}"
-      )
+      , flush=True)
       last_heartbeat = now
 
     if not sm.updated["carState"]:
@@ -49,6 +49,9 @@ def main() -> None:
     cs = sm["carState"]
     state = (
       str(cs.gearShifter),
+      float(cs.vEgo),
+      float(cs.vEgoRaw),
+      float(cs.vEgoCluster),
       bool(cs.leftBlinker),
       bool(cs.rightBlinker),
       bool(cs.seatbeltUnlatched),
@@ -61,18 +64,22 @@ def main() -> None:
 
     events = [f"{button_name(int(be.type))}:{'1' if be.pressed else '0'}" for be in cs.buttonEvents]
 
-    if state != last_state or events:
+    if last_state is None or state != last_state or events:
       ts = time.strftime("%H:%M:%S")
       print(
         f"[{ts}] "
         f"gear={state[0]} "
-        f"L={fmt_bool(state[1])} R={fmt_bool(state[2])} "
-        f"belt={fmt_bool(state[3])} door={fmt_bool(state[4])} brake={fmt_bool(state[5])} "
-        f"gasPressed={fmt_bool(state[6])} "
-        f"cruiseAvail={fmt_bool(state[7])} cruiseEn={fmt_bool(state[8])}"
+        f"vEgo={state[1]:.2f} "
+        f"vEgoRaw={state[2]:.2f} "
+        f"vEgoCluster={state[3]:.2f} "
+        f"L={fmt_bool(state[4])} R={fmt_bool(state[5])} "
+        f"belt={fmt_bool(state[6])} door={fmt_bool(state[7])} brake={fmt_bool(state[8])} "
+        f"gasPressed={fmt_bool(state[9])} "
+        f"cruiseAvail={fmt_bool(state[10])} cruiseEn={fmt_bool(state[11])}",
+        flush=True,
       )
       if events:
-        print(f"[{ts}] buttonEvents: {', '.join(events)}")
+        print(f"[{ts}] buttonEvents: {', '.join(events)}", flush=True)
       last_state = state
 
 

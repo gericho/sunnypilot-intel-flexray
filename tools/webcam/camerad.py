@@ -93,7 +93,8 @@ class Camerad:
             f"convert_ms={sums['convert_ms']/frame_count:.3f}",
             f"payload_ms={sums['payload_ms']/frame_count:.3f}",
             f"send_ms={sums['send_ms']/frame_count:.3f}",
-            f"backend={cam.nv12_backend}",
+            f"capture_backend={cam.backend}",
+            f"nv12_backend={cam.nv12_backend}",
             f"flip={cam.flip_mode}",
           ))
           print(log_line)
