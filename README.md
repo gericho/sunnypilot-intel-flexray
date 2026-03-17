@@ -1,6 +1,8 @@
 # SUNNYPILOT for BMW i3
 FlexRay-CAN (Intel PC/OpenVINO Build)
 
+> Disclaimer: this repository is under heavy development and must currently be considered `BROKEN`. It is not usable as a stable driving build.
+
 ![](docs/assets/Gemini_Generated_Image_pow61fpow61fpow6.png)
 
 ## 🤖 Technical Delta Summary
