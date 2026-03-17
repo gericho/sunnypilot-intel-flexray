@@ -280,6 +280,14 @@ class GuiApplication(GuiApplicationExt):
       rl.set_config_flags(flags)
 
       rl.init_window(self._scaled_width, self._scaled_height, title)
+      # On PC development runs, allow an explicit window position override.
+      # This is more reliable than relying on SDL/X11 env vars alone.
+      try:
+        ui_x = int(os.getenv("UI_X", ""))
+        ui_y = int(os.getenv("UI_Y", ""))
+        rl.set_window_position(ui_x, ui_y)
+      except ValueError:
+        pass
 
       needs_render_texture = self._scale != 1.0 or BURN_IN_MODE or RECORD
       if self._scale != 1.0:
