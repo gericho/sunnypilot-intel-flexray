@@ -2,7 +2,7 @@
 
 ![](https://user-images.githubusercontent.com/47793918/233812617-beab2e71-57b9-479e-8bff-c3931347ca40.png)
 
-## Technical Delta Summary
+## 🤖 Technical Delta Summary
 > **Status:** Work in progress. The Pico FlexRay + CAN transport path is currently working on the Czok V1 setup.
 
 1. Added BMW i3 support in `opendbc` with a dedicated DBC and platform registration.
@@ -96,7 +96,7 @@
      - BDC/powertrain then translate it into regen and, when needed, mechanical braking
      - `59` and `54` are the best current observable proxies for those two branches
 
-## FlexRay MITM Mapping
+## 👀 FlexRay MITM Mapping
 - Group 1 uses `FR1` and `FR2`.
 - `FR1` (`U5`) is the vehicle-side transceiver: `TXD GPIO28`, `TXEN GPIO27`, `RXD GPIO26`.
 - `FR2` (`U8`) is the ECU-side transceiver: `TXD GPIO4`, `TXEN GPIO5`, `RXD GPIO6`.
