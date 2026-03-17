@@ -24,7 +24,9 @@ append_block() {
 export_default SP_DEVICE_TYPE PC
 export_default BIG 1
 export_default SCALE 0.4
-#export NO_DM=1 # disable driver camera check
+export_default NO_DM 1
+export_default UI_X 1488
+export_default UI_Y 0
 
 # Force OpenCL to Intel iGPU ICD only.
 # tinygrad CL runtime picks the first platform, so excluding POCL/rusticl
@@ -60,7 +62,7 @@ export_default QCAM_FPS 5
 export_default WEBCAM_RAW_NV12 0
 export_default WEBCAM_BACKLIGHT_COMPENSATION 1
 export_default WEBCAM_AUTO_EXPOSURE 1
-export_default WEBCAM_EXPOSURE_ABSOLUTE 50
+export_default WEBCAM_EXPOSURE_ABSOLUTE 80
 export_default DISABLE_ENCODERD 1
 
 case "${RUN_PROFILE}" in
@@ -112,6 +114,8 @@ export_default DUAL_CAMERA 0
 export_default NOSENSOR 1
 export_default PYTHONUNBUFFERED 1
 export PYTHONPATH="$PWD"
+export SDL_VIDEO_WINDOW_POS="${UI_X},${UI_Y}"
+export WINDOW_POS="${UI_X},${UI_Y}"
 export_default WEBCAM_PROFILE 1
 export_default WEBCAM_PROFILE_INTERVAL 5
 export_default WEBCAM_BACKEND ffmpeg
@@ -154,6 +158,10 @@ fi
 
 if [ "$DISABLE_ENCODERD" = "1" ]; then
   append_block "encoderd"
+fi
+
+if [ "${NO_DM}" = "1" ]; then
+  append_block "dmonitoringd,dmonitoringmodeld"
 fi
 
 if [ "$LOG_ONLY_MODE" = "1" ]; then
