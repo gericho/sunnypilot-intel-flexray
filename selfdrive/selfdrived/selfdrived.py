@@ -98,7 +98,10 @@ class SelfdriveD(CruiseHelper):
 
     ignore = self.sensor_packets + self.gps_packets + ['alertDebug'] + ['modelDataV2SP']
     if PC:
-      ignore += ['driverMonitoringState']
+      # PC development runs don't have the full device/driver-monitoring/location stack.
+      # Treat these services as optional so commIssue reflects actionable runtime problems.
+      ignore += ['driverMonitoringState', 'livePose', 'liveDelay', 'liveParameters',
+                 'liveTorqueParameters', 'driverAssistance']
     if SIMULATION:
       ignore += ['driverCameraState', 'managerState']
     if REPLAY:
@@ -347,11 +350,14 @@ class SelfdriveD(CruiseHelper):
     num_events = len(self.events)
 
     not_running = {p.name for p in self.sm['managerState'].processes if not p.running and p.shouldBeRunning}
-    if self.sm.recv_frame['managerState'] and len(not_running):
-      if not_running != self.not_running_prev:
-        cloudlog.event("process_not_running", not_running=not_running, error=True)
-      self.not_running_prev = not_running
-    if self.sm.recv_frame['managerState'] and (not_running - self.ignored_processes):
+    actionable_not_running = not_running - self.ignored_processes
+    if self.sm.recv_frame['managerState'] and len(actionable_not_running):
+      if actionable_not_running != self.not_running_prev:
+        cloudlog.event("process_not_running", not_running=actionable_not_running, error=True)
+      self.not_running_prev = actionable_not_running
+    else:
+      self.not_running_prev = set()
+    if self.sm.recv_frame['managerState'] and actionable_not_running:
       self.events.add(EventName.processNotRunning)
     else:
       if not SIMULATION and not self.rk.lagging and not PC:
@@ -495,14 +501,17 @@ class SelfdriveD(CruiseHelper):
           self.state_machine.state = State.enabled
 
         self.initialized = True
+        ignored_alive = set(self.sm.ignore_alive)
+        ignored_valid = set(self.sm.ignore_valid)
+        ignored_freq = set(self.sm.ignore_avg_freq)
         cloudlog.event(
           "selfdrived.initialized",
           dt=self.sm.frame*DT_CTRL,
           timeout=timed_out,
           canValid=CS.canValid,
-          invalid=[s for s, valid in self.sm.valid.items() if not valid],
-          not_alive=[s for s, alive in self.sm.alive.items() if not alive],
-          not_freq_ok=[s for s, freq_ok in self.sm.freq_ok.items() if not freq_ok],
+          invalid=[s for s, valid in self.sm.valid.items() if not valid and s not in ignored_valid],
+          not_alive=[s for s, alive in self.sm.alive.items() if not alive and s not in ignored_alive],
+          not_freq_ok=[s for s, freq_ok in self.sm.freq_ok.items() if not freq_ok and s not in ignored_freq],
           error=True,
         )
 
