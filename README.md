@@ -98,6 +98,12 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
      - high-level stock longitudinal request is carried through the ADAS path
      - BDC/powertrain then translate it into regen and, when needed, mechanical braking
      - `59` and `54` are the best current observable proxies for those two branches
+25. Closed the current best conservative longitudinal TX architecture:
+   - `59` is the primary positive/coast branch
+   - `54` is the primary negative / brake-blend branch
+   - `59` is active mainly on even subcycles, with active-center words near `wB=32777`, `wC=32767`
+   - `54` is active mainly on odd subcycles, with active-center words near `wB=65025`, `wC=7`
+   - this is enough for conservative shadow/replay hints, but still not enough to claim a final physical TX payload or checksum/counter closure
 
 ## 👀 FlexRay MITM Mapping
 - Group 1 uses `FR1` and `FR2`.
@@ -164,7 +170,7 @@ This means:
 
 ## BMW i3 Runtime Status
 
-- Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` currently defaults to the logger-focused `can_soc_scan` profile.
+- Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` now defaults to `full_experimental` for onroad bring-up on this PC.
 - Current tuned onroad path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
 - Current tuned road-camera path: `ffmpeg` capture, `640x360`, `NV12`, `20 fps`.
 - OpenCL is still used for the vision transform/buffer path before inference; inference itself is OpenVINO, not OpenCL.
@@ -172,6 +178,7 @@ This means:
 - Vehicle speed now follows the BMW method: `FlexRay 55` primary, `FlexRay 46` fallback.
 - Stock ACC/TJA state is anchored on `FlexRay 0/131` + `0/135`; `1/97` is command/stalk echo only.
 - Best current stock longitudinal proxies: `FlexRay 1/59` = powertrain intent, `FlexRay 1/54` = brake-blend / regen support.
+- Best current stock longitudinal TX architecture: `59` even-subcycle positive/coast branch, `54` odd-subcycle negative/brake-blend branch.
 - Best current stock lateral RX helpers: `FlexRay 1/112` primary, `1/116` secondary, `1/275` confirmation.
 - Best current stock lateral TX localization: `FlexRay 0/72` = envelope / phase / counter, `FlexRay 0/96` = payload candidate.
 - `72` and `96` are localized, but the final lateral steer command is still not closed.
@@ -278,6 +285,10 @@ Your continuous love and support are greatly appreciated! Enjoy 🥰
   - `python scripts/compare_bmw_i3_shadow_lat.py /path/to/route --swaglog /path/to/swaglog`
 - Compare shadow longitudinal logs against real `59/54` route data with:
   - `python scripts/compare_bmw_i3_shadow_long.py /path/to/route --swaglog /path/to/swaglog`
+- Fit the current best conservative longitudinal branch centers from existing routes with:
+  - `python scripts/fit_bmw_i3_long_branches.py`
+- Sweep the previous day's routes and print only the ones that actually show ACC/TJA activity with:
+  - `python scripts/summarize_bmw_i3_yesterday_routes.py`
 - Run both shadow-log extraction and replay summary together with:
   - `python scripts/bmw_i3_offline_bundle.py`
 
