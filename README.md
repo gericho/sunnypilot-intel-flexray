@@ -224,6 +224,8 @@ This means:
   - `python scripts/build_bmw_i3_long_replay_hint.py /path/to/route`
 - Build a shadow-only CSV sequence for long replay from a route with:
   - `python scripts/build_bmw_i3_long_shadow_sequence.py /path/to/route`
+- Replay a saved long shadow sequence without transmitting anything with:
+  - `python scripts/replay_bmw_i3_long_shadow_sequence.py /path/to/bmw_i3_long_shadow_sequence.csv`
 - Run both shadow-log extraction and replay summary together with:
   - `python scripts/bmw_i3_offline_bundle.py`
 
