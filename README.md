@@ -104,6 +104,14 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
    - `59` is active mainly on even subcycles, with active-center words near `wB=32777`, `wC=32767`
    - `54` is active mainly on odd subcycles, with active-center words near `wB=65025`, `wC=7`
    - this is enough for conservative shadow/replay hints, but still not enough to claim a final physical TX payload or checksum/counter closure
+26. Added route-driven conservative long replay helpers:
+   - `scripts/build_bmw_i3_long_replay_hint.py` prints the per-second branch/parity/template to imitate from a route
+   - `scripts/build_bmw_i3_long_shadow_sequence.py` writes a CSV shadow sequence with:
+     - `131/135` gate/state
+     - active branch `59/54`
+     - observed phase
+     - target parity and target `wB/wC` center
+   - these tools are replay/shadow-only and deliberately do not transmit anything
 
 ## 👀 FlexRay MITM Mapping
 - Group 1 uses `FR1` and `FR2`.
@@ -179,6 +187,7 @@ This means:
 - Stock ACC/TJA state is anchored on `FlexRay 0/131` + `0/135`; `1/97` is command/stalk echo only.
 - Best current stock longitudinal proxies: `FlexRay 1/59` = powertrain intent, `FlexRay 1/54` = brake-blend / regen support.
 - Best current stock longitudinal TX architecture: `59` even-subcycle positive/coast branch, `54` odd-subcycle negative/brake-blend branch.
+- Best current stock longitudinal replay basis: route-driven shadow sequence with `131/135` gating plus `59/54` branch/parity targets.
 - Best current stock lateral RX helpers: `FlexRay 1/112` primary, `1/116` secondary, `1/275` confirmation.
 - Best current stock lateral TX localization: `FlexRay 0/72` = envelope / phase / counter, `FlexRay 0/96` = payload candidate.
 - `72` and `96` are localized, but the final lateral steer command is still not closed.
@@ -289,6 +298,10 @@ Your continuous love and support are greatly appreciated! Enjoy 🥰
   - `python scripts/fit_bmw_i3_long_branches.py`
 - Sweep the previous day's routes and print only the ones that actually show ACC/TJA activity with:
   - `python scripts/summarize_bmw_i3_yesterday_routes.py`
+- Build a conservative per-second long replay hint directly from a route with:
+  - `python scripts/build_bmw_i3_long_replay_hint.py /path/to/route`
+- Build a shadow-only CSV sequence for long replay from a route with:
+  - `python scripts/build_bmw_i3_long_shadow_sequence.py /path/to/route`
 - Run both shadow-log extraction and replay summary together with:
   - `python scripts/bmw_i3_offline_bundle.py`
 
