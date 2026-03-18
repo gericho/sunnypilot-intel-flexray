@@ -503,7 +503,7 @@ class SelfdriveD(CruiseHelper):
         self.initialized = True
         ignored_alive = set(self.sm.ignore_alive)
         ignored_valid = set(self.sm.ignore_valid)
-        ignored_freq = set(self.sm.ignore_avg_freq)
+        ignored_freq = set(self.sm.ignore_average_freq)
         cloudlog.event(
           "selfdrived.initialized",
           dt=self.sm.frame*DT_CTRL,

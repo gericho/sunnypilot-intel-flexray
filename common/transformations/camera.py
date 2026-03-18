@@ -1,4 +1,6 @@
 import itertools
+import math
+import os
 import numpy as np
 from dataclasses import dataclass
 
@@ -51,6 +53,24 @@ _os_fisheye = CameraConfig(2688 // 2, 1520 // 2, 567.0 / 4 * 3)
 _ar_ox_config = DeviceCameraConfig(CameraConfig(1928, 1208, 2648.0), _ar_ox_fisheye, _ar_ox_fisheye)
 _os_config = DeviceCameraConfig(CameraConfig(2688 // 2, 1520 // 2, 1522.0 * 3 / 4), _os_fisheye, _os_fisheye)
 _neo_config = DeviceCameraConfig(CameraConfig(1164, 874, 910.0), CameraConfig(816, 612, 650.0), _NoneCameraConfig())
+
+def _build_pc_webcam_config() -> DeviceCameraConfig:
+  width = int(os.getenv("ROAD_W", 640))
+  height = int(os.getenv("ROAD_H", 360))
+  focal_override = os.getenv("ROAD_FOCAL_PIXELS")
+  if focal_override is not None:
+    focal_length = float(focal_override)
+  else:
+    hfov_deg = float(os.getenv("ROAD_HFOV_DEG", 60.0))
+    focal_length = (width / 2.0) / math.tan(math.radians(hfov_deg) / 2.0)
+
+  road_cam = CameraConfig(width, height, focal_length)
+  return DeviceCameraConfig(road_cam, road_cam, _NoneCameraConfig())
+
+def get_device_camera_config(device_type: str, sensor: str) -> DeviceCameraConfig:
+  if (device_type, sensor) in (("pc", "unknown"), ("unknown", "unknown")):
+    return _build_pc_webcam_config()
+  return DEVICE_CAMERAS[(device_type, sensor)]
 
 DEVICE_CAMERAS = {
   # A "device camera" is defined by a device type and sensor
@@ -176,4 +196,3 @@ def img_from_device(pt_device):
 
   pt_img = pt_view/pt_view[:, 2:3]
   return pt_img.reshape(input_shape)[:, :2]
-

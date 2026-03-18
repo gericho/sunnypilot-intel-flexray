@@ -20,11 +20,20 @@ from openpilot.common.realtime import config_realtime_process
 from openpilot.common.transformations.orientation import rot_from_euler, euler_from_rot
 from openpilot.common.swaglog import cloudlog
 
-MIN_SPEED_FILTER = 15 * CV.MPH_TO_MS
-MAX_VEL_ANGLE_STD = np.radians(0.25)
-MAX_YAW_RATE_FILTER = np.radians(2)  # per second
+if HARDWARE.get_device_type() == 'pc':
+  # PC/webcam rigs do not produce pose statistics comparable to comma hardware.
+  # Relax the gates so calibration can converge on the development setup.
+  MIN_SPEED_FILTER = 15 * CV.KPH_TO_MS
+  MIN_TRANS_FILTER = 0.10
+  MAX_VEL_ANGLE_STD = np.radians(60)
+  MAX_HEIGHT_STD = 0.12
+else:
+  MIN_SPEED_FILTER = 15 * CV.MPH_TO_MS
+  MIN_TRANS_FILTER = MIN_SPEED_FILTER
+  MAX_VEL_ANGLE_STD = np.radians(0.25)
+  MAX_HEIGHT_STD = np.exp(-3.5)
 
-MAX_HEIGHT_STD = np.exp(-3.5)
+MAX_YAW_RATE_FILTER = np.radians(2)  # per second
 
 # This is at model frequency, blocks needed for efficiency
 SMOOTH_CYCLES = 10
@@ -38,7 +47,11 @@ WIDE_FROM_DEVICE_EULER_INIT = np.array([0.0, 0.0, 0.0])
 HEIGHT_INIT = np.array([1.22])
 
 # These values are needed to accommodate the model frame in the narrow cam
-if HARDWARE.get_device_type() == 'mici':
+if HARDWARE.get_device_type() == 'pc':
+  # Webcam rigs should be mounted close to level. A 5 deg accepted pitch is too
+  # permissive and leads to skyward overlays on this setup.
+  PITCH_LIMITS = np.array([-0.05, 0.05])
+elif HARDWARE.get_device_type() == 'mici':
   PITCH_LIMITS = np.array([-0.143101, 0.22235988])
 else:
   PITCH_LIMITS = np.array([-0.09074112085129739, 0.17])
@@ -82,6 +95,11 @@ class Calibrator:
           valid_blocks = msg.liveCalibration.validBlocks
           wide_from_device_euler = np.array(msg.liveCalibration.wideFromDeviceEuler)
           height = np.array(msg.liveCalibration.height)
+          if HARDWARE.get_device_type() == 'pc' and not is_calibration_valid(rpy_init):
+            rpy_init = RPY_INIT
+            wide_from_device_euler = WIDE_FROM_DEVICE_EULER_INIT
+            height = HEIGHT_INIT
+            valid_blocks = 0
       except Exception:
         cloudlog.exception("Error reading cached CalibrationParams")
 
@@ -186,7 +204,7 @@ class Calibrator:
                             road_transform_trans_std: list[float]) -> np.ndarray | None:
     self.old_rpy_weight = max(0.0, self.old_rpy_weight - 1/SMOOTH_CYCLES)
 
-    straight_and_fast = ((self.v_ego > MIN_SPEED_FILTER) and (trans[0] > MIN_SPEED_FILTER) and (abs(rot[2]) < MAX_YAW_RATE_FILTER))
+    straight_and_fast = ((self.v_ego > MIN_SPEED_FILTER) and (trans[0] > MIN_TRANS_FILTER) and (abs(rot[2]) < MAX_YAW_RATE_FILTER))
     angle_std_threshold = MAX_VEL_ANGLE_STD
     height_std_threshold = MAX_HEIGHT_STD
     rpy_certain = np.arctan2(trans_std[1], trans[0]) < angle_std_threshold

@@ -42,9 +42,9 @@ export OCL_ICD_VENDORS="${OPENCL_ICD_DIR}"
 # - log_modeld: keeps modeld enabled while preserving the stable logging defaults
 # - full_experimental: minimal blocking for broader bring-up/debug sessions
 #
-# Default to the CAN/SOC capture stack for this host. Override RUN_PROFILE
-# explicitly when you want a different runtime mix.
-export_default RUN_PROFILE can_soc_scan
+# Default to the onroad bring-up profile for this host. Override RUN_PROFILE
+# explicitly when you want logger-only capture or other runtime mixes.
+export_default RUN_PROFILE full_experimental
 
 export_default DISABLE_BOOTLOG 1
 export_default DISABLE_QCAMERA 1
@@ -60,9 +60,6 @@ export_default LOGGERD_ENCODER_QUEUE_LIMIT 1200
 export_default QCAM_BITRATE 120000
 export_default QCAM_FPS 5
 export_default WEBCAM_RAW_NV12 0
-export_default WEBCAM_BACKLIGHT_COMPENSATION 3
-export_default WEBCAM_AUTO_EXPOSURE 3
-export_default WEBCAM_EXPOSURE_ABSOLUTE 120
 export_default DISABLE_ENCODERD 0
 
 case "${RUN_PROFILE}" in
@@ -147,7 +144,7 @@ export_default FINGERPRINT_BUSES 0,1,13,23,24
 export_default ROAD_W 640
 export_default ROAD_H 360
 export_default ROAD_FPS 20
-export_default ROAD_FOURCC NV12 # YUYV NV12 MJPG
+export_default ROAD_FOURCC MJPG # YUYV NV12 MJPG
 
 # Driver camera parameters
 export_default DRIVER_W 640

@@ -93,16 +93,15 @@ class Camera:
   def _apply_v4l2_controls(self, w: int, h: int, fps: int, fourcc: str) -> None:
     if not self.device_path or self._controls_applied:
       return
-    auto_exposure = os.getenv("WEBCAM_AUTO_EXPOSURE", "1").strip()
-    exposure_absolute = os.getenv("WEBCAM_EXPOSURE_ABSOLUTE", "50").strip()
-    backlight = os.getenv("WEBCAM_BACKLIGHT_COMPENSATION", "1").strip()
     cmds = [
       ["v4l2-ctl", "-d", self.device_path, f"--set-fmt-video=width={w},height={h},pixelformat={fourcc}"],
       ["v4l2-ctl", "-d", self.device_path, f"--set-parm={fps}"],
-      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=backlight_compensation={backlight}"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=power_line_frequency=1"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=auto_exposure=3"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=exposure_dynamic_framerate=0"],
-      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=auto_exposure={auto_exposure}"],
-      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=exposure_time_absolute={exposure_absolute}"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=contrast=96"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=saturation=160"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=focus_automatic_continuous=0"],
     ]
     for cmd in cmds:
       try:
