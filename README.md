@@ -194,11 +194,6 @@ This means:
 - Current profiling on this PC shows the dominant cost is vision inference latency, not webcam capture, color conversion, rotation, or CL-to-numpy copy.
 - Shadow debug is available and read-only: `bmw_i3_shadow_acc` and `bmw_i3_shadow_long`.
 
-## Credits
-- CzokNorris: this project builds on CzokNorris's FlexRay reverse-engineering work and the V1 board design. Board reference: `https://oshwlab.com/czoknorris/v1board`
-- Dynm: FlexRay firmware foundation and related pico-flexray work. Repository: `https://github.com/dynm/pico-flexray`
-- Dynm openpilot Cabana: FlexRay demux UI inspiration and reference implementation from branch `cabana-flexray`
-
 ## Tested Hardware
 - CPU: Intel Core i5-7200U (4 vCPU, x86_64)
 - Webcam(s): Logitech BRIO
@@ -234,6 +229,5 @@ This means:
 
 ## Credits
 - CzokNorris: FlexRay reverse-engineering groundwork and V1 board design reference, `https://oshwlab.com/czoknorris/v1board`
-- Dynm: `pico-flexray` firmware foundation and related BMW FlexRay work, `https://github.com/dynm/pico-flexray`
-- Dynm openpilot: Cabana FlexRay demux reference from branch `cabana-flexray`
+- Dynm: `pico-flexray` firmware foundation, related BMW FlexRay work, and Cabana FlexRay demux reference from branch `cabana-flexray`, `https://github.com/dynm/pico-flexray`
 - smnogar: BMW openpilot/opendbc reference points used for signal naming and structural comparison
