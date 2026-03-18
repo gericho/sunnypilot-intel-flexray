@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 import time
 import signal
@@ -16,7 +17,9 @@ from openpilot.system.hardware import TICI
 from openpilot.common.gpio import gpio_init, gpio_set
 from openpilot.system.hardware.tici.pins import GPIO
 
-UBLOX_TTY = "/dev/ttyHS0"
+USB_UBLOX_PATH = "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_7_-_GPS_GNSS_Receiver-if00"
+UBLOX_TTY = os.getenv("UBLOX_TTY") or (USB_UBLOX_PATH if os.path.exists(USB_UBLOX_PATH) else ("/dev/ttyACM0" if os.path.exists("/dev/ttyACM0") else "/dev/ttyHS0"))
+INTERNAL_UBLOX = TICI and UBLOX_TTY == "/dev/ttyHS0"
 
 UBLOX_ACK = b"\xb5\x62\x05\x01\x02\x00"
 UBLOX_NACK = b"\xb5\x62\x05\x00\x02\x00"
@@ -26,6 +29,8 @@ UBLOX_BACKUP_RESTORE_MSG = b"\xb5\x62\x09\x14\x08\x00\x03"
 UBLOX_ASSIST_ACK = b"\xb5\x62\x13\x60\x08\x00"
 
 def set_power(enabled: bool) -> None:
+  if not INTERNAL_UBLOX:
+    return
   gpio_init(GPIO.UBLOX_SAFEBOOT_N, True)
   gpio_init(GPIO.GNSS_PWR_EN, True)
   gpio_init(GPIO.UBLOX_RST_N, True)
@@ -148,6 +153,8 @@ def save_almanac(pigeon: TTYPigeon) -> None:
     pass
 
 def init_baudrate(pigeon: TTYPigeon):
+  if not INTERNAL_UBLOX:
+    return
   # ublox default setting on startup is 9600 baudrate
   pigeon.set_baud(9600)
 
@@ -262,14 +269,18 @@ def init(pigeon: TTYPigeon) -> None:
   # register exit handler
   signal.signal(signal.SIGINT, lambda sig, frame: deinitialize_and_exit(pigeon))
 
-  # power cycle ublox
-  set_power(False)
-  time.sleep(0.1)
-  set_power(True)
-  time.sleep(0.5)
-
-  init_baudrate(pigeon)
-  init_pigeon(pigeon)
+  if INTERNAL_UBLOX:
+    # power cycle on internal TICI GNSS only
+    set_power(False)
+    time.sleep(0.1)
+    set_power(True)
+    time.sleep(0.5)
+    init_baudrate(pigeon)
+    init_pigeon(pigeon)
+  else:
+    # USB u-blox receivers may expose NMEA only and not ACK the internal
+    # TICI reconfiguration sequence. Start passthrough immediately.
+    cloudlog.warning(f"USB u-blox passthrough mode on {UBLOX_TTY}")
 
 def run_receiving(duration: int = 0):
   pm = messaging.PubMaster(['ubloxRaw'])
@@ -302,7 +313,6 @@ def run_receiving(duration: int = 0):
 
 
 def main():
-  assert TICI, "unsupported hardware for pigeond"
   run_receiving()
 
 if __name__ == "__main__":

@@ -28,14 +28,28 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
 13. Added PC runtime profiles and kept `qcamera` disabled by default to keep Cabana route handling deterministic on PC runs.
 14. Added logger queue tuning for encoder bursts (`LOGGERD_ENCODER_QUEUE_LIMIT`) and increased default buffering in `loggerd` to prevent HEVC packet drops during segment rotation.
 15. Tuned HEVC stability settings for PC capture: shorter GOP (keyframe cadence tied to `ROAD_FPS`) and reduced main-road bitrates (`ROAD_MAIN_BITRATE_LOW/HIGH`) to lower encoder pressure.
-16. Fixed BMW i3 startup on PC runs:
+16. Fixed raw route validation for `fcamera.hevc` on PC captures:
+   - raw HEVC files can report misleading nominal `r_frame_rate` metadata (`25/1`) even when the actual logged cadence is `20 fps`
+   - route validation now treats HEVC frame count as authoritative and uses `r_frame_rate` / `avg_frame_rate` as informational only
+17. Reworked BRIO road-camera geometry bring-up for PC calibration:
+   - route-derived pitch fitting was added from extracted `fcamera` frames
+   - the current PC calibration seed is based on a 100-image fit from route `00000179`
+   - this seed is used to improve webcam bring-up and calibration convergence on the PC rig
+18. Added USB GNSS integration work for external u-blox receivers on PC:
+   - `pigeond` can now target a configurable USB serial path instead of only internal `/dev/ttyHS0`
+   - PC runtime can expose the USB receiver through the normal `ubloxRaw -> ubloxd -> gpsLocationExternal` stack
+   - this specific tested receiver identifies as `u-blox 7 / UBX-G70xx`
+   - supported constellation string reported by the receiver: `GPS;SBAS;GLO;QZSS`
+   - Galileo is **not** available on the tested unit
+   - integration path is prepared in software, but this receiver is still not a dependable live GNSS source on its current USB interface
+19. Fixed BMW i3 startup on PC runs:
    - `./go.sh` exposes dedicated runtime profiles (`can_soc_scan`, `log_only_stable`, `log_modeld`, `full_experimental`)
    - runtime fingerprinting matches `BMW_I3_EXPERIMENTAL` instead of falling back to `MOCK`
-17. Fixed BMW i3 `carState` runtime compatibility for this fork's schema (`gasPressed` only, no direct `gas` field in `CarState`).
-18. Added a simple live debug tool:
+20. Fixed BMW i3 `carState` runtime compatibility for this fork's schema (`gasPressed` only, no direct `gas` field in `CarState`).
+21. Added a simple live debug tool:
    - `scripts/bmw_i3_live_monitor.py`
    - prints `gear`, `blinkers`, `seatbelt`, `door`, `brake`, `gasPressed`, `cruiseState`, and mapped `buttonEvents`
-19. Refined stock ACC reverse-engineering on modern BMW i3 routes:
+22. Refined stock ACC reverse-engineering on modern BMW i3 routes:
    - primary longitudinal stock-state helpers are now `FlexRay 0/131` and `0/135`
    - `0/131` separates `OFF (643)`, `ACC base armed/ready (3584)`, and managed/following states (`640/656`)
    - `0/135` separates `OFF (35041)`, `ACC base armed/ready (16610)`, and managed/following assist state (`24802`)
@@ -58,21 +72,21 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
    - current interpretation:
      - `59` is the best proxy for stock longitudinal high-level powertrain request/content
      - `54` is the best proxy for stock brake-blend / regen execution
-20. Promoted the strongest historical TJA lateral helpers from legacy routes `00000054` and `00000055`:
+23. Promoted the strongest historical TJA lateral helpers from legacy routes `00000054` and `00000055`:
    - `FlexRay 24/112` = primary stock lateral/TJA helper
    - `FlexRay 23/116` = secondary stock lateral/TJA helper
    - `FlexRay 23/275` = lateral/TJA confirmation helper
    - the same payload families are also present on the modern interface in route `000000b3`, now exposed on `src 1`
-21. Added first bit-level notes for stock lateral reverse-engineering:
+24. Added first bit-level notes for stock lateral reverse-engineering:
    - `112.byte5 bit5` is the strongest manual/off vs assisted-steering discriminator
    - `116` confirms assisted-steering phase changes, but does not yet expose a single robust boolean bit
-22. Refined stock longitudinal content reverse-engineering:
+25. Refined stock longitudinal content reverse-engineering:
    - `59` remains the strongest stock pedal/hold/coast-state candidate
    - `54` remains the best brake-blend / regen-support candidate
    - for practical inspection, the most useful helper bytes are:
      - `59.byte3-5`
      - `54.byte3-6`
-23. Added coarse offline stock longitudinal indices for route analysis:
+26. Added coarse offline stock longitudinal indices for route analysis:
    - `long_stock_mode`
      - anchor it from `FlexRay 0/131` + `0/135`
      - `OFF = 643 / 35041`
@@ -88,7 +102,7 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
      - primarily follows `54.byte3-6`
      - lower in stable manual/off windows
      - higher in stock-controlled coast/following and automatic decel windows
-24. Refined longitudinal interpretation around strong automatic braking:
+27. Refined longitudinal interpretation around strong automatic braking:
    - `FlexRay 1/59` should be treated as the best current proxy for stock longitudinal powertrain intent/state, not as a confirmed direct pedal-equivalent in physical units
    - `FlexRay 1/54` should be treated as the best current proxy for stock brake-blend / regen-support execution
    - in strong stock braking windows from historical TJA routes, both `59` and `54` move together:
@@ -98,13 +112,13 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
      - high-level stock longitudinal request is carried through the ADAS path
      - BDC/powertrain then translate it into regen and, when needed, mechanical braking
      - `59` and `54` are the best current observable proxies for those two branches
-25. Closed the current best conservative longitudinal TX architecture:
+28. Closed the current best conservative longitudinal TX architecture:
    - `59` is the primary positive/coast branch
    - `54` is the primary negative / brake-blend branch
    - `59` is active mainly on even subcycles, with active-center words near `wB=32777`, `wC=32767`
    - `54` is active mainly on odd subcycles, with active-center words near `wB=65025`, `wC=7`
    - this is enough for conservative shadow/replay hints, but still not enough to claim a final physical TX payload or checksum/counter closure
-26. Added route-driven conservative long replay helpers:
+29. Added route-driven conservative long replay helpers:
    - `scripts/build_bmw_i3_long_replay_hint.py` prints the per-second branch/parity/template to imitate from a route
    - `scripts/build_bmw_i3_long_shadow_sequence.py` writes a CSV shadow sequence with:
      - `131/135` gate/state
@@ -180,8 +194,12 @@ This means:
 
 - Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` now defaults to `full_experimental` for onroad bring-up on this PC.
 - Current tuned onroad path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
-- Current tuned road-camera path: `ffmpeg` capture, `640x360`, `NV12`, `20 fps`.
+- Current tuned road-camera path: `ffmpeg` capture, `640x360`, `MJPG`, `20 fps`.
+- Raw `fcamera.hevc` validation on PC uses frame-count truth; nominal HEVC metadata FPS is treated as informational only.
 - OpenCL is still used for the vision transform/buffer path before inference; inference itself is OpenVINO, not OpenCL.
+- Current BRIO webcam calibration bring-up uses:
+  - `HFOV = 60°`
+  - PC pitch seed derived from route `00000179` frame fitting
 - Confirmed parsed signals: `gear P/D/N/R`, `blinkers`, `seatbelt`, `driver door`, `gasPressed`, `brakePressed`, `cruiseState`, `SET`, `RES`, `ACC`, `TJA`.
 - Vehicle speed now follows the BMW method: `FlexRay 55` primary, `FlexRay 46` fallback.
 - Stock ACC/TJA state is anchored on `FlexRay 0/131` + `0/135`; `1/97` is command/stalk echo only.
@@ -193,6 +211,24 @@ This means:
 - `72` and `96` are localized, but the final lateral steer command is still not closed.
 - Current profiling on this PC shows the dominant cost is vision inference latency, not webcam capture, color conversion, rotation, or CL-to-numpy copy.
 - Shadow debug is available and read-only: `bmw_i3_shadow_acc` and `bmw_i3_shadow_long`.
+
+## USB GNSS Status
+
+- Current tested USB GNSS receiver:
+  - `u-blox 7 / UBX-G70xx`
+  - stable path:
+    - `/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_7_-_GPS_GNSS_Receiver-if00`
+- Receiver capability string from live `MON-VER` probe:
+  - `GPS;SBAS;GLO;QZSS`
+- Practical Europe-focused interpretation:
+  - usable for `GPS + EGNOS/SBAS`
+  - possibly usable with `GLONASS`
+  - **not** Galileo-capable on the tested unit
+- Software path in this tree is prepared for USB u-blox on PC:
+  - `pigeond -> ubloxRaw -> ubloxd -> gpsLocationExternal -> locationd -> liveLocationKalman -> mapd`
+- Current limitation:
+  - this receiver responds to identification polling, but is not yet a reliable continuous nav-data source on its present USB interface
+  - so the software integration path is prepared, but live GNSS operation is still not considered closed
 
 ## Tested Hardware
 - CPU: Intel Core i5-7200U (4 vCPU, x86_64)

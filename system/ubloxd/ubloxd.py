@@ -3,6 +3,7 @@ import math
 import capnp
 import calendar
 import numpy as np
+from datetime import datetime, timezone
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -79,6 +80,180 @@ class UbxFramer:
         self.buf = self.buf[1:]
 
     return out
+
+
+class NmeaParser:
+  def __init__(self) -> None:
+    self.buf = bytearray()
+    self.last_rmc: dict[str, object] = {}
+    self.last_gga: dict[str, object] = {}
+    self.last_gsa: dict[str, object] = {}
+    self.last_gsv_sat_count = 0
+
+  @staticmethod
+  def _parse_lat_lon(value: str, hemi: str) -> float | None:
+    if not value or not hemi:
+      return None
+    try:
+      dot = value.find('.')
+      if dot < 0:
+        return None
+      deg_len = dot - 2
+      deg = float(value[:deg_len])
+      minutes = float(value[deg_len:])
+      out = deg + minutes / 60.0
+      if hemi in ('S', 'W'):
+        out = -out
+      return out
+    except Exception:
+      return None
+
+  @staticmethod
+  def _parse_hms(value: str) -> tuple[int, int, int, int] | None:
+    if len(value) < 6:
+      return None
+    try:
+      hour = int(value[0:2])
+      minute = int(value[2:4])
+      sec = int(value[4:6])
+      frac_ms = 0
+      if '.' in value:
+        frac = value.split('.', 1)[1]
+        frac_ms = int((frac + "000")[:3])
+      return hour, minute, sec, frac_ms
+    except Exception:
+      return None
+
+  @staticmethod
+  def _parse_date(value: str) -> tuple[int, int, int] | None:
+    if len(value) != 6:
+      return None
+    try:
+      day = int(value[0:2])
+      month = int(value[2:4])
+      year = 2000 + int(value[4:6])
+      if year < 2080:
+        return year, month, day
+      return year - 100, month, day
+    except Exception:
+      return None
+
+  def add_data(self, incoming: bytes) -> list[tuple[str, capnp.lib.capnp._DynamicStructBuilder]]:
+    out: list[tuple[str, capnp.lib.capnp._DynamicStructBuilder]] = []
+    if not incoming:
+      return out
+    self.buf += incoming
+
+    while True:
+      nl = self.buf.find(b'\n')
+      if nl < 0:
+        break
+      line = bytes(self.buf[:nl]).strip()
+      self.buf = self.buf[nl + 1:]
+      if not line.startswith(b'$'):
+        continue
+      msg = self.parse_line(line.decode('ascii', errors='ignore'))
+      if msg is not None:
+        out.append(msg)
+    return out
+
+  def parse_line(self, line: str) -> tuple[str, capnp.lib.capnp._DynamicStructBuilder] | None:
+    if '*' in line:
+      line = line.split('*', 1)[0]
+    fields = line.split(',')
+    if not fields:
+      return None
+
+    sentence = fields[0]
+    kind = sentence[-3:]
+
+    if kind == 'RMC' and len(fields) >= 10:
+      self.last_rmc = {
+        'time': self._parse_hms(fields[1]),
+        'status': fields[2],
+        'lat': self._parse_lat_lon(fields[3], fields[4]),
+        'lon': self._parse_lat_lon(fields[5], fields[6]),
+        'speed_ms': (float(fields[7]) * 0.514444) if fields[7] else 0.0,
+        'bearing_deg': float(fields[8]) if fields[8] else 0.0,
+        'date': self._parse_date(fields[9]),
+      }
+      return self._build_message()
+
+    if kind == 'GGA' and len(fields) >= 10:
+      self.last_gga = {
+        'time': self._parse_hms(fields[1]),
+        'lat': self._parse_lat_lon(fields[2], fields[3]),
+        'lon': self._parse_lat_lon(fields[4], fields[5]),
+        'fix_quality': int(fields[6]) if fields[6] else 0,
+        'satellites': int(fields[7]) if fields[7] else 0,
+        'hdop': float(fields[8]) if fields[8] else 99.99,
+        'altitude': float(fields[9]) if fields[9] else 0.0,
+      }
+      return self._build_message()
+
+    if kind == 'GSA' and len(fields) >= 18:
+      self.last_gsa = {
+        'fix_mode': int(fields[2]) if fields[2] else 1,
+        'pdop': float(fields[15]) if fields[15] else 99.99,
+        'hdop': float(fields[16]) if fields[16] else 99.99,
+        'vdop': float(fields[17]) if fields[17] else 99.99,
+      }
+      return self._build_message()
+
+    if kind == 'GSV' and len(fields) >= 4:
+      self.last_gsv_sat_count = int(fields[3]) if fields[3] else self.last_gsv_sat_count
+      return self._build_message()
+
+    return None
+
+  def _build_message(self) -> tuple[str, capnp.lib.capnp._DynamicStructBuilder] | None:
+    if not self.last_rmc or not self.last_gga:
+      return None
+
+    has_fix = self.last_rmc.get('status') == 'A' and self.last_gga.get('fix_quality', 0) > 0
+    lat = self.last_gga.get('lat') if self.last_gga.get('lat') is not None else self.last_rmc.get('lat')
+    lon = self.last_gga.get('lon') if self.last_gga.get('lon') is not None else self.last_rmc.get('lon')
+    if lat is None or lon is None:
+      return None
+
+    hdop = float(self.last_gsa.get('hdop', self.last_gga.get('hdop', 99.99)))
+    vdop = float(self.last_gsa.get('vdop', max(hdop * 1.5, 1.0)))
+    horizontal_accuracy = max(1.5, hdop * 5.0)
+    vertical_accuracy = max(2.5, vdop * 8.0)
+    speed = float(self.last_rmc.get('speed_ms', 0.0))
+    bearing_deg = float(self.last_rmc.get('bearing_deg', 0.0))
+    bearing_rad = math.radians(bearing_deg)
+    vn = speed * math.cos(bearing_rad)
+    ve = speed * math.sin(bearing_rad)
+
+    unix_timestamp_millis = 0
+    if self.last_rmc.get('date') and self.last_rmc.get('time'):
+      year, month, day = self.last_rmc['date']
+      hour, minute, sec, frac_ms = self.last_rmc['time']
+      try:
+        dt = datetime(year, month, day, hour, minute, sec, frac_ms * 1000, tzinfo=timezone.utc)
+        unix_timestamp_millis = int(dt.timestamp() * 1000)
+      except Exception:
+        unix_timestamp_millis = 0
+
+    dat = messaging.new_message('gpsLocationExternal', valid=True)
+    gps = dat.gpsLocationExternal
+    gps.source = log.GpsLocationData.SensorSource.ublox
+    gps.flags = 1 if has_fix else 0
+    gps.hasFix = has_fix
+    gps.latitude = float(lat)
+    gps.longitude = float(lon)
+    gps.altitude = float(self.last_gga.get('altitude', 0.0))
+    gps.speed = speed
+    gps.bearingDeg = bearing_deg
+    gps.horizontalAccuracy = horizontal_accuracy
+    gps.verticalAccuracy = vertical_accuracy
+    gps.speedAccuracy = max(0.5, 0.1 + hdop * 0.1)
+    gps.bearingAccuracyDeg = max(2.0, 5.0 + hdop)
+    gps.satelliteCount = int(self.last_gga.get('satellites', self.last_gsv_sat_count))
+    gps.unixTimestampMillis = unix_timestamp_millis
+    gps.vNED = [float(vn), float(ve), 0.0]
+    return ('gpsLocationExternal', dat)
 
 
 def _bit(b: int, shift: int) -> bool:
@@ -508,6 +683,7 @@ class UbloxMsgParser:
 
 def main():
   parser = UbloxMsgParser()
+  nmea_parser = NmeaParser()
   pm = messaging.PubMaster(['ubloxGnss', 'gpsLocationExternal'])
   sock = messaging.sub_sock('ubloxRaw', timeout=100, conflate=False)
 
@@ -528,6 +704,9 @@ def main():
         continue
       service, dat = res
       pm.send(service, dat)
+    if not frames:
+      for service, dat in nmea_parser.add_data(data):
+        pm.send(service, dat)
 
 
 if __name__ == '__main__':

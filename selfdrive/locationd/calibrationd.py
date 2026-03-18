@@ -23,7 +23,7 @@ from openpilot.common.swaglog import cloudlog
 if HARDWARE.get_device_type() == 'pc':
   # PC/webcam rigs do not produce pose statistics comparable to comma hardware.
   # Relax the gates so calibration can converge on the development setup.
-  MIN_SPEED_FILTER = 15 * CV.KPH_TO_MS
+  MIN_SPEED_FILTER = 15 * CV.MPH_TO_MS
   MIN_TRANS_FILTER = 0.10
   MAX_VEL_ANGLE_STD = np.radians(60)
   MAX_HEIGHT_STD = 0.12
@@ -42,15 +42,22 @@ INPUTS_NEEDED = 5   # Minimum blocks needed for valid calibration
 INPUTS_WANTED = 50   # We want a little bit more than we need for stability
 MAX_ALLOWED_YAW_SPREAD = np.radians(2)
 MAX_ALLOWED_PITCH_SPREAD = np.radians(4)
-RPY_INIT = np.array([0.0,0.0,0.0])
+if HARDWARE.get_device_type() == 'pc':
+  # Seed the BRIO rig close to the route-derived road pitch so calibration
+  # starts near the visually correct overlay instead of from flat zero.
+  RPY_INIT = np.array([0.0, 0.059738, 0.0])
+else:
+  RPY_INIT = np.array([0.0, 0.0, 0.0])
 WIDE_FROM_DEVICE_EULER_INIT = np.array([0.0, 0.0, 0.0])
 HEIGHT_INIT = np.array([1.22])
 
 # These values are needed to accommodate the model frame in the narrow cam
 if HARDWARE.get_device_type() == 'pc':
-  # Webcam rigs should be mounted close to level. A 5 deg accepted pitch is too
-  # permissive and leads to skyward overlays on this setup.
-  PITCH_LIMITS = np.array([-0.05, 0.05])
+  # Webcam rigs should be mounted close to level, but the BRIO setup here
+  # converges near +0.055 rad when the overlay becomes visually reasonable.
+  # Keep the range tight enough to reject obviously bad skyward calibration,
+  # without flagging the stable BRIO solution as invalid.
+  PITCH_LIMITS = np.array([-0.05, 0.07])
 elif HARDWARE.get_device_type() == 'mici':
   PITCH_LIMITS = np.array([-0.143101, 0.22235988])
 else:

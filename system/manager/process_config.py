@@ -29,7 +29,13 @@ def logging(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started and run
 
 def ublox_available() -> bool:
-  return os.path.exists('/dev/ttyHS0') and not os.path.exists('/persist/comma/use-quectel-gps')
+  configured_tty = os.getenv("UBLOX_TTY")
+  candidates = [configured_tty] if configured_tty else [
+    '/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_7_-_GPS_GNSS_Receiver-if00',
+    '/dev/ttyACM0',
+    '/dev/ttyHS0',
+  ]
+  return any(path and os.path.exists(path) for path in candidates) and not os.path.exists('/persist/comma/use-quectel-gps')
 
 def ublox(started: bool, params: Params, CP: car.CarParams) -> bool:
   use_ublox = ublox_available()
@@ -142,8 +148,8 @@ procs = [
   PythonProcess("pandad", "selfdrive.pandad.pandad", always_run),
   PythonProcess("paramsd", "selfdrive.locationd.paramsd", only_onroad),
   PythonProcess("lagd", "selfdrive.locationd.lagd", only_onroad),
-  PythonProcess("ubloxd", "system.ubloxd.ubloxd", ublox, enabled=TICI),
-  PythonProcess("pigeond", "system.ubloxd.pigeond", ublox, enabled=TICI),
+  PythonProcess("ubloxd", "system.ubloxd.ubloxd", ublox, enabled=True),
+  PythonProcess("pigeond", "system.ubloxd.pigeond", ublox, enabled=True),
   PythonProcess("plannerd", "selfdrive.controls.plannerd", not_long_maneuver),
   PythonProcess("maneuversd", "tools.longitudinal_maneuvers.maneuversd", long_maneuver),
   PythonProcess("radard", "selfdrive.controls.radard", only_onroad),

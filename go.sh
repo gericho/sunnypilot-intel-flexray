@@ -110,6 +110,7 @@ export_default USE_WEBCAM 1
 export_default DUAL_CAMERA 0
 export_default NOSENSOR 1
 export_default PYTHONUNBUFFERED 1
+export_default UBLOX_TTY /dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_7_-_GPS_GNSS_Receiver-if00
 export PYTHONPATH="$PWD"
 export SDL_VIDEO_WINDOW_POS="${UI_X},${UI_Y}"
 export WINDOW_POS="${UI_X},${UI_Y}"
