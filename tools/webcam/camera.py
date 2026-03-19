@@ -5,6 +5,18 @@ import time
 import cv2 as cv
 import numpy as np
 
+def _find_cameractrls() -> str | None:
+  candidates = (
+    os.getenv("CAMERACTRLS_PATH"),
+    "/tmp/cameractrls/cameractrls.py",
+    "/usr/local/bin/cameractrls.py",
+    "/usr/bin/cameractrls.py",
+  )
+  for path in candidates:
+    if path and os.path.exists(path):
+      return path
+  return None
+
 class Camera:
   def __init__(self, cam_type_state, stream_type, camera_id):
     try:
@@ -97,12 +109,16 @@ class Camera:
       ["v4l2-ctl", "-d", self.device_path, f"--set-fmt-video=width={w},height={h},pixelformat={fourcc}"],
       ["v4l2-ctl", "-d", self.device_path, f"--set-parm={fps}"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=power_line_frequency=1"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=auto_exposure=3"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=exposure_dynamic_framerate=0"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=contrast=96"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=saturation=160"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=auto_exposure=1"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=exposure_time_absolute=5"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=backlight_compensation=0"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=gain=0"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=focus_automatic_continuous=0"],
     ]
+    cameractrls = _find_cameractrls()
+    brio_fov = os.getenv("WEBCAM_BRIO_FOV")
+    if cameractrls and brio_fov and self.cam_type_state == "roadCameraState":
+      cmds.insert(0, [cameractrls, "-d", self.device_path, "-c", f"logitech_brio_fov={brio_fov}"])
     for cmd in cmds:
       try:
         subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

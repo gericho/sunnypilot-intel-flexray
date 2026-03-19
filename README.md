@@ -195,6 +195,7 @@ This means:
 - Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` now defaults to `full_experimental` for onroad bring-up on this PC.
 - Current tuned onroad path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
 - Current tuned road-camera path: `ffmpeg` capture, `640x360`, `MJPG`, `20 fps`.
+- Current BRIO hardware path uses `cameractrls` when available and applies `logitech_brio_fov=65` to the road camera.
 - Raw `fcamera.hevc` validation on PC uses frame-count truth; nominal HEVC metadata FPS is treated as informational only.
 - OpenCL is still used for the vision transform/buffer path before inference; inference itself is OpenVINO, not OpenCL.
 - Current BRIO webcam calibration bring-up uses:

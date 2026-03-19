@@ -117,6 +117,7 @@ export WINDOW_POS="${UI_X},${UI_Y}"
 export_default WEBCAM_PROFILE 0
 export_default WEBCAM_PROFILE_INTERVAL 5
 export_default WEBCAM_BACKEND ffmpeg
+export_default WEBCAM_BRIO_FOV 65
 export_default FORCE_MODEL_RUNNER tinygrad
 export_default USE_ONNX 1
 export_default ORT_BACKEND openvino
