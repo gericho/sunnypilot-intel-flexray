@@ -32,6 +32,13 @@ LABELED_ROUTES = {
   },
 }
 
+SUPPORT_ROUTES = [
+  "/home/gericho/.comma/media/0/realdata/00000176--3a6e928ca3--0/rlog.zst",
+  "/home/gericho/.comma/media/0/realdata/00000177--e20f5033b4--0/rlog.zst",
+  "/home/gericho/.comma/media/0/realdata/00000177--e20f5033b4--1/rlog.zst",
+  "/home/gericho/.comma/media/0/realdata/00000177--e20f5033b4--2/rlog.zst",
+]
+
 PHASE_THRESHOLDS = {
   60: 112.083,
   24: 80.833,
@@ -60,6 +67,8 @@ class PhaseProfile:
   b4: int
   b8: int
   magnitude_confidence: str
+  ladder_left: list[tuple[int, int, int]] | None = None
+  ladder_right: list[tuple[int, int, int]] | None = None
 
 
 def label_for_time(t: float, windows: list[tuple[str, float, float]]) -> Optional[str]:
@@ -129,11 +138,64 @@ def build_phase_profiles(samples: list[Sample]) -> dict[int, PhaseProfile]:
       b8=Counter(phase_consts.get(8, [0xFF])).most_common(1)[0][0],
       magnitude_confidence="high" if phase == 60 else "low",
     )
+
+  support_pairs: dict[int, dict[str, Counter]] = {
+    phase: {"left": Counter(), "right": Counter()} for phase in PHASE_THRESHOLDS
+  }
+  last72 = None
+  for fn in SUPPORT_ROUTES:
+    p = Path(fn)
+    if not p.exists():
+      continue
+    for evt in LogReader(str(p)):
+      if evt.which() != "can":
+        continue
+      for c in evt.can:
+        d = bytes(c.dat)
+        if c.src == 0 and c.address == 72 and len(d) >= 9:
+          last72 = d
+        elif c.src == 0 and c.address == 96 and len(d) >= 9 and last72 is not None:
+          phase = d[0]
+          if phase not in PHASE_THRESHOLDS or last72[0] != phase:
+            continue
+          thr = PHASE_THRESHOLDS[phase]
+          pair = (int(d[1]), int(d[2]), int(d[3]))
+          direction = "right" if d[1] > thr else "left"
+          support_pairs[phase][direction][pair] += 1
+
+  for phase, profile in list(profiles.items()):
+    left_pairs = support_pairs[phase]["left"]
+    right_pairs = support_pairs[phase]["right"]
+    if not left_pairs or not right_pairs:
+      continue
+    ladder_left = sorted(left_pairs, key=lambda p: abs(profile.threshold - p[0]))
+    ladder_right = sorted(right_pairs, key=lambda p: abs(p[0] - profile.threshold))
+    profiles[phase] = PhaseProfile(
+      phase=profile.phase,
+      threshold=profile.threshold,
+      b1_left=min(p[0] for p in left_pairs),
+      b1_right=max(p[0] for p in right_pairs),
+      b2_left=profile.b2_left,
+      b2_right=profile.b2_right,
+      b3=profile.b3,
+      b4=profile.b4,
+      b8=profile.b8,
+      magnitude_confidence=profile.magnitude_confidence,
+      ladder_left=ladder_left,
+      ladder_right=ladder_right,
+    )
   return profiles
 
 
 def clamp_u8(v: float) -> int:
   return max(0, min(255, int(round(v))))
+
+
+def select_b3_from_b2(b2: int) -> int:
+  # TJA support routes show a stable split on byte3:
+  #   b2 in 246..252 -> 0x21
+  #   otherwise      -> 0xE0
+  return 0x21 if 246 <= int(b2) <= 252 else 0xE0
 
 
 def pack_lat96(phase: int, direction: str, mag_norm: float, profiles: dict[int, PhaseProfile]) -> Optional[bytes]:
@@ -149,18 +211,23 @@ def pack_lat96(phase: int, direction: str, mag_norm: float, profiles: dict[int, 
     b1_target = profile.b1_right
     b2 = profile.b2_right
 
-  if profile.magnitude_confidence == "high":
+  ladder = profile.ladder_left if direction == "left" else profile.ladder_right
+  if ladder:
+    idx = int(round(mag_norm * (len(ladder) - 1)))
+    b1, b2, b3 = ladder[idx]
+  elif profile.magnitude_confidence == "high":
     b1 = profile.threshold + (b1_target - profile.threshold) * mag_norm
+    b3 = select_b3_from_b2(b2)
   else:
-    # Phases 24 and 8 are direction-usable but magnitude-weak. Keep the
-    # direction median and do not pretend to have an analog model yet.
+    # Fall back to the direction median when no ladder is available.
     b1 = float(b1_target)
+    b3 = select_b3_from_b2(b2)
 
   payload = bytearray(9)
   payload[0] = phase & 0xFF
   payload[1] = clamp_u8(b1)
   payload[2] = clamp_u8(b2)
-  payload[3] = profile.b3 & 0xFF
+  payload[3] = clamp_u8(b3)
   payload[4] = profile.b4 & 0xFF
   payload[5] = 0xFF
   payload[6] = 0xFF
