@@ -97,7 +97,6 @@ esac
 export_default WEBCAM_FLIP -1
 
 # PC/webcam mode
-export_default FORCE_ONROAD 1
 #export REPLAY=1
 #export SIMULATOR=1
 
