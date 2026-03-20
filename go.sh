@@ -4,6 +4,11 @@ set -e
 cd ~/sunnypilot
 source .venv/bin/activate
 
+# Reset stale runtime profile state from previous shells/runs.
+unset BLOCK
+unset LOG_ONLY_MODE
+unset DISABLE_MODELD
+
 export_default() {
   local name="$1"
   local value="$2"
@@ -150,6 +155,7 @@ fi
 
 # Camera indexes (if the code uses indexes)
 export_default ROAD_CAM 0
+export_default FINGERPRINT BMW_I3_EXPERIMENTAL
 # Buses to use for car fingerprinting (legacy CAN + FlexRay gateway buses).
 export_default FINGERPRINT_BUSES 0,1,13,23,24
 #export DRIVER_CAM=4

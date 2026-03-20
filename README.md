@@ -227,14 +227,15 @@ This means:
 - Current BRIO webcam calibration bring-up uses:
   - `HFOV = 60°`
   - PC pitch seed derived from route `00000179` frame fitting
-- Confirmed parsed signals: `gear P/D/N/R`, `blinkers`, `seatbelt`, `driver door`, `gas`, `gasPressed`, `cruiseState`, `SET`, `RES`, `ACC`, `TJA`.
+- Confirmed parsed signals: `gear P/D/N/R`, `blinkers`, `seatbelt`, `driver door`, `gasPressed`, `brake`, `brakePressed`, `cruiseState`, `SET`, `RES`, `ACC`, `TJA`.
 - Current parked-route-confirmed PT-CAN decode basis:
   - blinkers: `502 PTCAN_TURNSIGNALS_CANDIDATE`
   - seatbelt: `435.byte4` + `663.byte2` cross-check
   - accelerator analog: `217.byte2:3` with `4096` release baseline and `4000`-count useful span
-- `brakePressed` is intentionally disabled again for now:
-  - the latest isolated gas route shows the previous brake candidate also moves under non-brake decel activity
-  - this must be separated from regen / stop-lamp behavior before being promoted again
+  - brake analog: `239.byte5:6` with `32000` release baseline and delta-based analog reconstruction
+- Current pragmatic pedal thresholds in parser:
+  - `gasPressed`: accelerator delta `> 100`
+  - `brakePressed`: brake delta `> 10`
 - Vehicle speed now follows the BMW method: `FlexRay 55` primary, `FlexRay 46` fallback.
 - Stock ACC/TJA state is anchored on `FlexRay 0/131` + `0/135`; `1/97` is command/stalk echo only.
 - Best current stock longitudinal proxies: `FlexRay 1/59` = powertrain intent, `FlexRay 1/54` = brake-blend / regen support.
