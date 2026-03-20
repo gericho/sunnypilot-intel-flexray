@@ -145,6 +145,11 @@ export_default ORT_OPENVINO_PERFORMANCE_HINT LATENCY
 export_default ORT_OPENVINO_EXECUTION_MODE PERFORMANCE
 export_default ORT_OPENVINO_NUM_STREAMS 1
 export_default ORT_OPENVINO_CACHE_DIR "$PWD/.cache/openvino_model_cache"
+export_default ENABLE_BMW_I3_SHADOW_LOGGER 1
+export_default BMW_I3_SHADOW_LOGGER_INTERVAL 0.2
+export_default BMW_I3_SHADOW_LOGGER_OUT /tmp/bmw_i3_shadow/rlog.jsonl
+export_default BMW_I3_SHADOW_LOGGER_ERR /tmp/bmw_i3_shadow_logger.stderr
+export_default BMW_I3_SHADOW_LOGGER_PID /tmp/bmw_i3_shadow_logger.pid
 
 # Mirror qcamera toggle into a runtime flag file so native daemons can read it reliably.
 if [ "${DISABLE_QCAMERA}" = "1" ]; then
@@ -203,6 +208,16 @@ fi
 if [ -n "${DRIVER_CAM:-}" ] && [ -e "/dev/video${DRIVER_CAM}" ]; then
   v4l2-ctl -d "/dev/video${DRIVER_CAM}" --set-fmt-video=width=${DRIVER_W},height=${DRIVER_H},pixelformat=${DRIVER_FOURCC} || true
   v4l2-ctl -d "/dev/video${DRIVER_CAM}" --set-parm=${DRIVER_FPS} || true
+fi
+
+if [ "${ENABLE_BMW_I3_SHADOW_LOGGER}" = "1" ]; then
+  pkill -f "scripts/bmw_i3_shadow_logger.py" >/dev/null 2>&1 || true
+  rm -f "${BMW_I3_SHADOW_LOGGER_PID}"
+  nohup python "$PWD/scripts/bmw_i3_shadow_logger.py" \
+    --out "${BMW_I3_SHADOW_LOGGER_OUT}" \
+    --interval "${BMW_I3_SHADOW_LOGGER_INTERVAL}" \
+    >>"${BMW_I3_SHADOW_LOGGER_ERR}" 2>&1 &
+  echo $! > "${BMW_I3_SHADOW_LOGGER_PID}"
 fi
 
 cd system/manager

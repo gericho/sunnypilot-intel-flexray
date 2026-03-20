@@ -70,10 +70,17 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
    - `./go.sh` exposes dedicated runtime profiles (`can_soc_scan`, `log_only_stable`, `log_modeld`, `full_experimental`)
    - runtime fingerprinting matches `BMW_I3_EXPERIMENTAL` instead of falling back to `MOCK`
 20. Fixed BMW i3 `carState` runtime compatibility for this fork's schema (`gasPressed` only, no direct `gas` field in `CarState`).
-21. Added a simple live debug tool:
+21. Added an automatic BMW i3 shadow logger for PC bring-up:
+   - `./go.sh` starts `scripts/bmw_i3_shadow_logger.py` in background
+   - when a route segment exists, it writes under:
+     - `<segment>/bmw_i3_shadow/rlog.jsonl`
+   - before route creation or as fallback, it writes to:
+     - `/tmp/bmw_i3_shadow/rlog.jsonl`
+   - the logger saves smoothed stock intent hints, raw helper values, and openpilot-side `op_*` planning/actuator fields without transmitting anything
+22. Added a simple live debug tool:
    - `scripts/bmw_i3_live_monitor.py`
    - prints `gear`, `blinkers`, `seatbelt`, `door`, `brake`, `gasPressed`, `cruiseState`, and mapped `buttonEvents`
-22. Refined stock ACC reverse-engineering on modern BMW i3 routes:
+23. Refined stock ACC reverse-engineering on modern BMW i3 routes:
    - primary longitudinal stock-state helpers are now `FlexRay 0/131` and `0/135`
    - `0/131` separates `OFF (643)`, `ACC base armed/ready (3584)`, and managed/following states (`640/656`)
    - `0/135` separates `OFF (35041)`, `ACC base armed/ready (16610)`, and managed/following assist state (`24802`)
@@ -96,21 +103,21 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
    - current interpretation:
      - `59` is the best proxy for stock longitudinal high-level powertrain request/content
      - `54` is the best proxy for stock brake-blend / regen execution
-23. Promoted the strongest historical TJA lateral helpers from legacy routes `00000054` and `00000055`:
+24. Promoted the strongest historical TJA lateral helpers from legacy routes `00000054` and `00000055`:
    - `FlexRay 24/112` = primary stock lateral/TJA helper
    - `FlexRay 23/116` = secondary stock lateral/TJA helper
    - `FlexRay 23/275` = lateral/TJA confirmation helper
    - the same payload families are also present on the modern interface in route `000000b3`, now exposed on `src 1`
-24. Added first bit-level notes for stock lateral reverse-engineering:
+25. Added first bit-level notes for stock lateral reverse-engineering:
    - `112.byte5 bit5` is the strongest manual/off vs assisted-steering discriminator
    - `116` confirms assisted-steering phase changes, but does not yet expose a single robust boolean bit
-25. Refined stock longitudinal content reverse-engineering:
+26. Refined stock longitudinal content reverse-engineering:
    - `59` remains the strongest stock pedal/hold/coast-state candidate
    - `54` remains the best brake-blend / regen-support candidate
    - for practical inspection, the most useful helper bytes are:
      - `59.byte3-5`
      - `54.byte3-6`
-26. Added coarse offline stock longitudinal indices for route analysis:
+27. Added coarse offline stock longitudinal indices for route analysis:
    - `long_stock_mode`
      - anchor it from `FlexRay 0/131` + `0/135`
      - `OFF = 643 / 35041`
@@ -126,7 +133,7 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
      - primarily follows `54.byte3-6`
      - lower in stable manual/off windows
      - higher in stock-controlled coast/following and automatic decel windows
-27. Refined longitudinal interpretation around strong automatic braking:
+28. Refined longitudinal interpretation around strong automatic braking:
    - `FlexRay 1/59` should be treated as the best current proxy for stock longitudinal powertrain intent/state, not as a confirmed direct pedal-equivalent in physical units
    - `FlexRay 1/54` should be treated as the best current proxy for stock brake-blend / regen-support execution
    - in strong stock braking windows from historical TJA routes, both `59` and `54` move together:
@@ -136,13 +143,13 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
      - high-level stock longitudinal request is carried through the ADAS path
      - BDC/powertrain then translate it into regen and, when needed, mechanical braking
      - `59` and `54` are the best current observable proxies for those two branches
-28. Closed the current best conservative longitudinal TX architecture:
+29. Closed the current best conservative longitudinal TX architecture:
    - `59` is the primary positive/coast branch
    - `54` is the primary negative / brake-blend branch
    - `59` is active mainly on even subcycles, with active-center words near `wB=32777`, `wC=32767`
    - `54` is active mainly on odd subcycles, with active-center words near `wB=65025`, `wC=7`
    - this is enough for conservative shadow/replay hints, but still not enough to claim a final physical TX payload or checksum/counter closure
-29. Added route-driven conservative long replay helpers:
+30. Added route-driven conservative long replay helpers:
    - `scripts/build_bmw_i3_long_replay_hint.py` prints the per-second branch/parity/template to imitate from a route
    - `scripts/build_bmw_i3_long_shadow_sequence.py` writes a CSV shadow sequence with:
      - `131/135` gate/state
@@ -221,6 +228,8 @@ This means:
 - Current tuned onroad path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
 - Current tuned road-camera path: `ffmpeg` capture, `640x360`, `MJPG`, `20 fps`.
 - Current PC webcam path uses a manual V4L2 exposure/gain controller in `tools/webcam/camera.py` with dynamic updates for changing light, rather than relying on the BRIO auto-exposure.
+- `./go.sh` now also starts `scripts/bmw_i3_shadow_logger.py` automatically in background and writes JSONL runtime/shadow data to `<segment>/bmw_i3_shadow/rlog.jsonl` when a route segment exists, with fallback to `/tmp/bmw_i3_shadow/rlog.jsonl` before route creation (stderr in `/tmp/bmw_i3_shadow_logger.stderr`). Disable with `ENABLE_BMW_I3_SHADOW_LOGGER=0`.
+- No special runtime mode is required for the shadow logger: restart `./go.sh` after logger changes, then drive normally. The logger runs continuously and records both stock-derived fields and openpilot-side `op_*` fields in the same JSONL stream.
 - Raw `fcamera.hevc` validation on PC uses frame-count truth; nominal HEVC metadata FPS is treated as informational only.
 - OpenCL is still used for the vision transform/buffer path before inference; inference itself is OpenVINO, not OpenCL.
 - Current BRIO webcam calibration bring-up uses:
