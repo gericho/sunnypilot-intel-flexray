@@ -64,6 +64,10 @@ else:
   PITCH_LIMITS = np.array([-0.09074112085129739, 0.17])
 YAW_LIMITS = np.array([-0.06912048084718224, 0.06912048084718235])
 DEBUG = os.getenv("DEBUG") is not None
+PC_CALIB_FREEZE = HARDWARE.get_device_type() == 'pc' and os.getenv("PC_CALIB_FREEZE", "0") == "1"
+PC_CALIB_PITCH_RAD = float(os.getenv("PC_CALIB_PITCH_RAD", str(RPY_INIT[1])))
+PC_CALIB_YAW_RAD = float(os.getenv("PC_CALIB_YAW_RAD", "0.0"))
+PC_CALIB_FROZEN_RPY = np.array([0.0, PC_CALIB_PITCH_RAD, PC_CALIB_YAW_RAD])
 
 
 def is_calibration_valid(rpy: np.ndarray) -> bool:
@@ -85,6 +89,7 @@ class Calibrator:
     self.param_put = param_put
 
     self.not_car = False
+    self.freeze_pc_calib = PC_CALIB_FREEZE
 
     # Read saved calibration
     self.params = Params()
@@ -111,7 +116,23 @@ class Calibrator:
         cloudlog.exception("Error reading cached CalibrationParams")
 
     self.reset(rpy_init, valid_blocks, wide_from_device_euler, height)
-    self.update_status()
+    if self.freeze_pc_calib:
+      self._apply_frozen_pc_calib()
+    else:
+      self.update_status()
+
+  def _apply_frozen_pc_calib(self) -> None:
+    self.rpy = PC_CALIB_FROZEN_RPY.copy()
+    self.old_rpy = self.rpy.copy()
+    self.old_rpy_weight = 0.0
+    self.rpys = np.tile(self.rpy, (INPUTS_WANTED, 1))
+    self.calib_spread = np.zeros(3)
+    self.valid_blocks = INPUTS_NEEDED
+    self.block_idx = 0
+    self.idx = 0
+    self.cal_status = log.LiveCalibrationData.Status.calibrated
+    if self.param_put:
+      self.params.put_nonblocking("CalibrationParams", self.get_msg(True).to_bytes())
 
   def reset(self, rpy_init: np.ndarray = RPY_INIT,
                   valid_blocks: int = 0,
@@ -160,6 +181,10 @@ class Calibrator:
     return before_current + after_current
 
   def update_status(self) -> None:
+    if self.freeze_pc_calib:
+      self._apply_frozen_pc_calib()
+      return
+
     valid_idxs = self.get_valid_idxs()
     if valid_idxs:
       self.wide_from_device_euler = np.mean(self.wide_from_device_eulers[valid_idxs], axis=0)
@@ -209,6 +234,14 @@ class Calibrator:
                             trans_std: list[float],
                             road_transform_trans: list[float],
                             road_transform_trans_std: list[float]) -> np.ndarray | None:
+    if self.freeze_pc_calib:
+      if len(wide_from_device_euler) == 3 and np.isfinite(wide_from_device_euler).all():
+        self.wide_from_device_euler = np.array(wide_from_device_euler)
+      if len(road_transform_trans) == 3 and np.isfinite(road_transform_trans).all():
+        self.height = np.array([road_transform_trans[2]])
+      self._apply_frozen_pc_calib()
+      return self.rpy.copy()
+
     self.old_rpy_weight = max(0.0, self.old_rpy_weight - 1/SMOOTH_CYCLES)
 
     straight_and_fast = ((self.v_ego > MIN_SPEED_FILTER) and (trans[0] > MIN_TRANS_FILTER) and (abs(rot[2]) < MAX_YAW_RATE_FILTER))

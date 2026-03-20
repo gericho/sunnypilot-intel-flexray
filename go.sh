@@ -170,6 +170,10 @@ export_default ROAD_W 640
 export_default ROAD_H 360
 export_default ROAD_FPS 20
 export_default ROAD_FOURCC MJPG # YUYV NV12 MJPG
+export_default ROAD_HFOV_DEG 50
+export_default PC_CALIB_FREEZE 1
+export_default PC_CALIB_PITCH_RAD 0.059738
+export_default PC_CALIB_YAW_RAD 0.03705092892050743
 
 # Driver camera parameters
 export_default DRIVER_W 640
@@ -209,6 +213,20 @@ if [ -n "${DRIVER_CAM:-}" ] && [ -e "/dev/video${DRIVER_CAM}" ]; then
   v4l2-ctl -d "/dev/video${DRIVER_CAM}" --set-fmt-video=width=${DRIVER_W},height=${DRIVER_H},pixelformat=${DRIVER_FOURCC} || true
   v4l2-ctl -d "/dev/video${DRIVER_CAM}" --set-parm=${DRIVER_FPS} || true
 fi
+
+python - <<'PY'
+import os
+import cereal.messaging as messaging
+from openpilot.common.params import Params
+
+pitch = float(os.getenv("PC_CALIB_PITCH_RAD", "0.059738"))
+yaw = float(os.getenv("PC_CALIB_YAW_RAD", "0.03705092892050743"))
+
+msg = messaging.new_message('liveCalibration')
+msg.liveCalibration.validBlocks = 20
+msg.liveCalibration.rpyCalib = [0.0, pitch, yaw]
+Params().put("CalibrationParams", msg.to_bytes())
+PY
 
 if [ "${ENABLE_BMW_I3_SHADOW_LOGGER}" = "1" ]; then
   pkill -f "scripts/bmw_i3_shadow_logger.py" >/dev/null 2>&1 || true
