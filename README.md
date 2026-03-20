@@ -13,10 +13,12 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
   - seatbelt
   - accelerator analog
   - accelerator pressed
-- Not in production:
-  - brake pressed
-- Missing:
   - brake analog
+  - brake pressed
+- Not in production:
+  - none
+- Missing:
+  - none confirmed on CAN body/pedal signals
 
 ### FlexRay
 - In production:
@@ -28,7 +30,6 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
 - Missing:
   - final lateral forward model
   - final longitudinal forward model
-  - brake analog integration into the control path
 
 ## 🤖 Technical Delta Summary
 > **Status:** Work in progress. The Pico FlexRay + CAN transport path is currently working on the Czok V1 setup.
