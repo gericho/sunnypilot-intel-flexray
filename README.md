@@ -193,7 +193,7 @@ This means:
 ## BMW i3 Runtime Status
 
 - Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` now defaults to `full_experimental` for PC/webcam bring-up on this host.
-- `./go.sh` is not a stock launcher on this PC anymore: it exports `FORCE_ONROAD=1`, `USE_WEBCAM=1`, and `NOSENSOR=1` for bring-up/debug. Treat this launcher as a PC/webcam bootstrap, not as a stock car-gated entrypoint.
+- `./go.sh` keeps the PC/webcam hardware adaptations (`USE_WEBCAM=1`, `NOSENSOR=1`) and the dynamic webcam exposure/gain controller, but it no longer forces onroad startup. Startup gating should now follow the normal runtime state instead of a forced PC bring-up path.
 - Current tuned onroad path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
 - Current tuned road-camera path: `ffmpeg` capture, `640x360`, `MJPG`, `20 fps`.
 - Current PC webcam path uses a manual V4L2 exposure/gain controller in `tools/webcam/camera.py` with dynamic updates for changing light, rather than relying on the BRIO auto-exposure.
@@ -203,6 +203,10 @@ This means:
   - `HFOV = 60°`
   - PC pitch seed derived from route `00000179` frame fitting
 - Confirmed parsed signals: `gear P/D/N/R`, `blinkers`, `seatbelt`, `driver door`, `gasPressed`, `brakePressed`, `cruiseState`, `SET`, `RES`, `ACC`, `TJA`.
+- Current parked-route-confirmed PT-CAN decode basis:
+  - blinkers: `502 PTCAN_TURNSIGNALS_CANDIDATE`
+  - seatbelt: `435.byte4` + `663.byte2` cross-check
+  - brakePressed: `538.byte0` (`0x00` released, `0x80` pressed)
 - Vehicle speed now follows the BMW method: `FlexRay 55` primary, `FlexRay 46` fallback.
 - Stock ACC/TJA state is anchored on `FlexRay 0/131` + `0/135`; `1/97` is command/stalk echo only.
 - Best current stock longitudinal proxies: `FlexRay 1/59` = powertrain intent, `FlexRay 1/54` = brake-blend / regen support.
