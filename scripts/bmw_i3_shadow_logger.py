@@ -288,10 +288,10 @@ def main() -> None:
         lat_phase, lat_b1, lat_b2, lat_b3 = d[0], d[1], d[2], d[3]
       lat_dir, lat_dir_conf = infer_lat_direction(lat_phase, lat_b1)
       lat_mag, lat_mag_conf = infer_lat_mag(lat_phase, lat_b1)
-      lat_active = None
+      lat_helper_active = None
       if fr1_112 is not None:
         d112 = bytes.fromhex(fr1_112)
-        lat_active = (d112[5] & 0x20) == 0 if len(d112) > 5 else None
+        lat_helper_active = (d112[5] & 0x20) == 0 if len(d112) > 5 else None
       gate131 = None
       state135 = None
       if fr0_131 is not None:
@@ -304,7 +304,8 @@ def main() -> None:
           state135 = d135[5] | (d135[6] << 8)
       acc_mode = mode_from_state(gate131, state135)
       acc_active = acc_mode in ("ACC_ARMED", "MANAGED")
-      tja_active = (acc_mode == "MANAGED") and bool(lat_active)
+      lat_active = (acc_mode == "MANAGED") and bool(lat_helper_active)
+      tja_active = lat_active
 
       row = {
         "ts_wall": time.time(),
@@ -335,6 +336,7 @@ def main() -> None:
         "stock_acc_mode": acc_mode,
         "stock_acc_active": acc_active,
         "stock_tja_active": tja_active,
+        "stock_lat_helper_active": lat_helper_active,
         "stock_lat_active": lat_active,
         "stock_lat_phase": lat_phase,
         "stock_lat_b1": lat_b1,
