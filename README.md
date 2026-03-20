@@ -17,8 +17,6 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
   - brake pressed
 - Not in production:
   - none
-- Missing:
-  - none confirmed on CAN body/pedal signals
 
 ### FlexRay
 - In production:
