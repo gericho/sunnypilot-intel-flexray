@@ -23,8 +23,8 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
   - stock lateral receive/state helpers
   - stock longitudinal receive/state helpers
 - Not in production:
-  - lateral transmit command
-  - longitudinal transmit command
+  - lateral transmit
+  - longitudinal transmit
 - Missing:
   - final lateral forward model
   - final longitudinal forward model
