@@ -5,17 +5,12 @@ import time
 import cv2 as cv
 import numpy as np
 
-def _find_cameractrls() -> str | None:
-  candidates = (
-    os.getenv("CAMERACTRLS_PATH"),
-    "/tmp/cameractrls/cameractrls.py",
-    "/usr/local/bin/cameractrls.py",
-    "/usr/bin/cameractrls.py",
-  )
-  for path in candidates:
-    if path and os.path.exists(path):
-      return path
-  return None
+
+def _env_flag(name: str, default: bool) -> bool:
+  v = os.getenv(name)
+  if v is None:
+    return default
+  return v.strip().lower() in ("1", "true", "yes", "on")
 
 class Camera:
   def __init__(self, cam_type_state, stream_type, camera_id):
@@ -59,6 +54,30 @@ class Camera:
     self._requested_fps = int(fps)
     self._requested_fourcc = fourcc
     self._controls_applied = False
+    self._dynamic_exposure_enabled = (
+      cam_type_state == "roadCameraState" and
+      _env_flag("WEBCAM_DYNAMIC_EXPOSURE", True)
+    )
+    self._dynamic_exposure_min = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MIN", "8"))
+    self._dynamic_exposure_max = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MAX", "1500"))
+    initial_exposure_env = os.getenv("WEBCAM_DYNAMIC_EXPOSURE_INITIAL")
+    initial_exposure_default = (self._dynamic_exposure_min + self._dynamic_exposure_max) / 2.0
+    self._dynamic_exposure_current = float(initial_exposure_env) if initial_exposure_env is not None else initial_exposure_default
+    self._dynamic_exposure_interval_s = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_INTERVAL", "0.1"))
+    self._dynamic_exposure_sample_every = max(1, int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_SAMPLE_EVERY", "2")))
+    self._dynamic_exposure_target_low = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_TARGET_LOW", "70"))
+    self._dynamic_exposure_target_high = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_TARGET_HIGH", "135"))
+    self._dynamic_exposure_target_mid = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_TARGET_MID", "96"))
+    self._dynamic_exposure_clip_high = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_CLIP_HIGH", "0.02"))
+    self._dynamic_exposure_clip_low = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_CLIP_LOW", "0.0005"))
+    self._dynamic_exposure_smoothing = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_SMOOTHING", "0.6"))
+    self._dynamic_exposure_max_delta = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MAX_DELTA", "250.0"))
+    self._dynamic_gain_enabled = _env_flag("WEBCAM_DYNAMIC_GAIN", True)
+    self._dynamic_gain_max = int(os.getenv("WEBCAM_DYNAMIC_GAIN_MAX", "255"))
+    self._dynamic_gain_start_exposure = float(os.getenv("WEBCAM_DYNAMIC_GAIN_START_EXPOSURE", "120"))
+    self._dynamic_gain_full_exposure = float(os.getenv("WEBCAM_DYNAMIC_GAIN_FULL_EXPOSURE", "1500"))
+    self._dynamic_exposure_frame_count = 0
+    self._dynamic_exposure_last_change = 0.0
 
     if self.backend == "ffmpeg":
       self.w_int = int(w)
@@ -91,6 +110,11 @@ class Camera:
     self._raw_nv12_probed = False
 
     print(f"[webcamerad:{cam_type_state}] requested={int(w)}x{int(h)}@{fps:g} {fourcc} negotiated={self.w_int}x{self.h_int}@{negotiated_fps:g} backend={self.backend}")
+    if self._dynamic_exposure_enabled:
+      print(
+        f"[webcamerad:{cam_type_state}] dynamic_exposure=active "
+        f"range=[{self._dynamic_exposure_min},{self._dynamic_exposure_max}] initial={self._dynamic_exposure_current:.1f}"
+      )
 
     # Fast path: if backend can deliver NV12 raw frames, skip BGR->NV12 conversion.
     # Flip on raw NV12 is not handled here, so keep RGB conversion when flip is requested.
@@ -115,16 +139,89 @@ class Camera:
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=gain=0"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=focus_automatic_continuous=0"],
     ]
-    cameractrls = _find_cameractrls()
-    brio_fov = os.getenv("WEBCAM_BRIO_FOV")
-    if cameractrls and brio_fov and self.cam_type_state == "roadCameraState":
-      cmds.insert(0, [cameractrls, "-d", self.device_path, "-c", f"logitech_brio_fov={brio_fov}"])
     for cmd in cmds:
       try:
         subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
       except Exception:
         pass
     self._controls_applied = True
+    if self._dynamic_exposure_enabled:
+      self._set_manual_exposure(self._dynamic_exposure_current)
+
+  def _set_manual_exposure(self, exposure_time: int) -> None:
+    if not self.device_path:
+      return
+    exposure_time = max(3, int(round(exposure_time)))
+    gain = 0
+    if self._dynamic_exposure_enabled and self._dynamic_gain_enabled:
+      if exposure_time > self._dynamic_gain_start_exposure:
+        span = max(1.0, self._dynamic_gain_full_exposure - self._dynamic_gain_start_exposure)
+        frac = min(max((exposure_time - self._dynamic_gain_start_exposure) / span, 0.0), 1.0)
+        gain = int(round(frac * self._dynamic_gain_max))
+    cmds = [
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=auto_exposure=1"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=exposure_time_absolute={exposure_time}"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=gain={gain}"],
+    ]
+    for cmd in cmds:
+      try:
+        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+      except Exception:
+        pass
+
+  def _maybe_update_dynamic_exposure_stats(self, mean_luma: float, high_clip: float, low_clip: float) -> None:
+    if not self._dynamic_exposure_enabled:
+      return
+    self._dynamic_exposure_frame_count += 1
+    if (self._dynamic_exposure_frame_count % self._dynamic_exposure_sample_every) != 0:
+      return
+    now = time.monotonic()
+    if (now - self._dynamic_exposure_last_change) < self._dynamic_exposure_interval_s:
+      return
+
+    if self._dynamic_exposure_target_low <= mean_luma <= self._dynamic_exposure_target_high and high_clip <= self._dynamic_exposure_clip_high:
+      return
+    target = self._dynamic_exposure_target_mid
+    ratio = target / max(mean_luma, 1.0)
+    if high_clip > self._dynamic_exposure_clip_high:
+      ratio *= 0.75
+    elif low_clip > 0.08 and mean_luma < self._dynamic_exposure_target_low:
+      ratio *= 1.15
+    desired = self._dynamic_exposure_current * ratio
+    smoothed = (
+      (1.0 - self._dynamic_exposure_smoothing) * self._dynamic_exposure_current +
+      self._dynamic_exposure_smoothing * desired
+    )
+    lower = self._dynamic_exposure_current - self._dynamic_exposure_max_delta
+    upper = self._dynamic_exposure_current + self._dynamic_exposure_max_delta
+    new_exposure = min(max(smoothed, lower), upper)
+    new_exposure = min(max(new_exposure, self._dynamic_exposure_min), self._dynamic_exposure_max)
+    if abs(new_exposure - self._dynamic_exposure_current) < 0.75:
+      return
+    self._dynamic_exposure_current = float(new_exposure)
+    self._set_manual_exposure(new_exposure)
+    self._dynamic_exposure_last_change = now
+    print(
+      f"[webcamerad:{self.cam_type_state}] dynamic_exposure_value={self._dynamic_exposure_current:.1f} "
+      f"mean={mean_luma:.1f} high_clip={high_clip:.3f} low_clip={low_clip:.3f}"
+    )
+
+  def _maybe_update_dynamic_exposure_bgr(self, frame: np.ndarray) -> None:
+    gray = cv.cvtColor(cv.resize(frame, (160, 90), interpolation=cv.INTER_AREA), cv.COLOR_BGR2GRAY)
+    mean_luma = float(gray.mean())
+    high_clip = float((gray >= 245).mean())
+    low_clip = float((gray <= 10).mean())
+    self._maybe_update_dynamic_exposure_stats(mean_luma, high_clip, low_clip)
+
+  def _maybe_update_dynamic_exposure_nv12(self, payload) -> None:
+    if not self._dynamic_exposure_enabled:
+      return
+    y_plane = np.frombuffer(payload, dtype=np.uint8, count=self.w_int * self.h_int).reshape((self.h_int, self.w_int))
+    gray = cv.resize(y_plane, (160, 90), interpolation=cv.INTER_AREA)
+    mean_luma = float(gray.mean())
+    high_clip = float((gray >= 245).mean())
+    low_clip = float((gray <= 10).mean())
+    self._maybe_update_dynamic_exposure_stats(mean_luma, high_clip, low_clip)
 
   def _is_nv12_frame(self, frame):
     if frame is None or frame.dtype != np.uint8:
@@ -227,6 +324,7 @@ class Camera:
         self._raw_nv12_active = True
         print(f"[webcamerad:{self.cam_type_state}] raw_nv12=active")
       payload = memoryview(data)
+      self._maybe_update_dynamic_exposure_nv12(payload)
       if self.profile:
         yield payload, {
           "read_ms": read_ms,
@@ -281,6 +379,8 @@ class Camera:
         frame = cv.cvtColor(frame, cv.COLOR_YUV2BGR_YUY2)
       elif frame.ndim == 2:
         frame = cv.cvtColor(frame, cv.COLOR_GRAY2BGR)
+
+      self._maybe_update_dynamic_exposure_bgr(frame)
 
       flip_ms = 0.0
       if self.flip_code is not None:

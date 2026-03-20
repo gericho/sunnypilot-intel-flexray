@@ -192,10 +192,11 @@ This means:
 
 ## BMW i3 Runtime Status
 
-- Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` now defaults to `full_experimental` for onroad bring-up on this PC.
+- Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` now defaults to `full_experimental` for PC/webcam bring-up on this host.
+- `./go.sh` is not a stock launcher on this PC anymore: it exports `FORCE_ONROAD=1`, `USE_WEBCAM=1`, and `NOSENSOR=1` for bring-up/debug. Treat this launcher as a PC/webcam bootstrap, not as a stock car-gated entrypoint.
 - Current tuned onroad path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
 - Current tuned road-camera path: `ffmpeg` capture, `640x360`, `MJPG`, `20 fps`.
-- Current BRIO hardware path uses `cameractrls` when available and applies `logitech_brio_fov=65` to the road camera.
+- Current PC webcam path uses a manual V4L2 exposure/gain controller in `tools/webcam/camera.py` with dynamic updates for changing light, rather than relying on the BRIO auto-exposure.
 - Raw `fcamera.hevc` validation on PC uses frame-count truth; nominal HEVC metadata FPS is treated as informational only.
 - OpenCL is still used for the vision transform/buffer path before inference; inference itself is OpenVINO, not OpenCL.
 - Current BRIO webcam calibration bring-up uses:
