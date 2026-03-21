@@ -55,10 +55,10 @@ FlexRay-CAN (Intel PC/OpenVINO Build)
 16. Fixed raw route validation for `fcamera.hevc` on PC captures:
    - raw HEVC files can report misleading nominal `r_frame_rate` metadata (`25/1`) even when the actual logged cadence is `20 fps`
    - route validation now treats HEVC frame count as authoritative and uses `r_frame_rate` / `avg_frame_rate` as informational only
-17. Reworked BRIO road-camera geometry bring-up for PC calibration:
-   - route-derived pitch fitting was added from extracted `fcamera` frames
-   - the current PC calibration seed is based on a 100-image fit from route `00000179`
-   - this seed is used to improve webcam bring-up and calibration convergence on the PC rig
+17. Reworked the PC BRIO camera path:
+   - direct Logitech BRIO UVC FoV control is used in-tree
+   - the main webcam can be exposed to `modeld` as the wide camera without duplicating the physical feed
+   - PC camera configs now include an explicit `ecam` path for webcam bring-up
 18. Added USB GNSS integration work for external u-blox receivers on PC:
    - `pigeond` can now target a configurable USB serial path instead of only internal `/dev/ttyHS0`
    - PC runtime can expose the USB receiver through the normal `ubloxRaw -> ubloxd -> gpsLocationExternal` stack
@@ -224,17 +224,24 @@ This means:
 ## BMW i3 Runtime Status
 
 - Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` now defaults to `full_experimental` for PC/webcam bring-up on this host.
-- `./go.sh` keeps the PC/webcam hardware adaptations (`USE_WEBCAM=1`, `NOSENSOR=1`) and the dynamic webcam exposure/gain controller, but it no longer forces onroad startup. Startup gating should now follow the normal runtime state instead of a forced PC bring-up path.
+- `./go.sh` keeps the PC/webcam hardware adaptations (`USE_WEBCAM=1`, `NOSENSOR=1`) and the dynamic webcam exposure controller, but it no longer forces onroad startup. Startup gating follows the normal runtime state instead of a forced PC bring-up path.
 - Current tuned onroad path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
-- Current tuned road-camera path: `ffmpeg` capture, `1280x720`, `MJPG`, `20 fps`.
+- Current PC webcam path: `ffmpeg` capture, `640x360`, `MJPG`, `20 fps`.
 - Current PC webcam path uses direct V4L2 control plus direct Logitech BRIO UVC FoV control in `tools/webcam/camera.py`; it does not depend on external camera helper tools.
+- Current main-camera model routing on PC:
+  - one physical BRIO feed
+  - published as `wideRoadCameraState`
+  - consumed by `modeld` as `main_wide_camera=True`
+  - no second physical camera and no duplicated `camerad` stream
 - `./go.sh` now also starts `scripts/bmw_i3_shadow_logger.py` automatically in background and writes JSONL runtime/shadow data to `<segment>/bmw_i3_shadow/rlog.jsonl` when a route segment exists, with fallback to `/tmp/bmw_i3_shadow/rlog.jsonl` before route creation (stderr in `/tmp/bmw_i3_shadow_logger.stderr`). Disable with `ENABLE_BMW_I3_SHADOW_LOGGER=0`.
 - No special runtime mode is required for the shadow logger: restart `./go.sh` after logger changes, then drive normally. The logger runs continuously and records both stock-derived fields and openpilot-side `op_*` fields in the same JSONL stream.
 - Raw `fcamera.hevc` validation on PC uses frame-count truth; nominal HEVC metadata FPS is treated as informational only.
 - OpenCL is still used for the vision transform/buffer path before inference; inference itself is OpenVINO, not OpenCL.
-- Current BRIO webcam calibration bring-up uses:
+- Current BRIO webcam settings:
   - `WEBCAM_BRIO_FOV = 65`
-  - `dynamic exposure` capped conservatively to keep raw camera FPS stable
+  - `dynamic exposure` enabled
+  - `dynamic gain` disabled
+  - `dynamic exposure max = 500`
 - Confirmed parsed signals: `gear P/D/N/R`, `blinkers`, `seatbelt`, `driver door`, `gasPressed`, `brake`, `brakePressed`, `cruiseState`, `SET`, `RES`, `ACC`, `TJA`.
 - Current parked-route-confirmed PT-CAN decode basis:
   - blinkers: `502 PTCAN_TURNSIGNALS_CANDIDATE`

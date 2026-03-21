@@ -8,6 +8,13 @@ source .venv/bin/activate
 unset BLOCK
 unset LOG_ONLY_MODE
 unset DISABLE_MODELD
+unset ROAD_HFOV_DEG
+unset ROAD_FOCAL_PIXELS
+unset WIDE_HFOV_DEG
+unset WIDE_FOCAL_PIXELS
+unset PC_CALIB_PITCH_RAD
+unset PC_CALIB_YAW_RAD
+unset WIDE_CAM
 
 export_default() {
   local name="$1"
@@ -114,6 +121,7 @@ export_default USE_WEBCAM 1
 export_default DUAL_CAMERA 0
 export_default NOSENSOR 1
 export_default PYTHONUNBUFFERED 1
+export_default WEBCAM_MAIN_IS_WIDE 1
 export_default UBLOX_TTY /dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_7_-_GPS_GNSS_Receiver-if00
 export PYTHONPATH="$PWD"
 export SDL_VIDEO_WINDOW_POS="${UI_X},${UI_Y}"
@@ -173,6 +181,7 @@ export_default ROAD_W 640
 export_default ROAD_H 360
 export_default ROAD_FPS 20
 export_default ROAD_FOURCC MJPG # YUYV NV12 MJPG
+export_default WIDE_HFOV_DEG 65
 export_default PC_CALIB_FREEZE 0
 
 # Driver camera parameters
