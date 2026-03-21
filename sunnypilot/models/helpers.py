@@ -13,6 +13,7 @@ import numpy as np
 from openpilot.common.params import Params
 from cereal import custom
 from openpilot.sunnypilot.models.constants import Meta, MetaTombRaider, MetaSimPose
+from openpilot.sunnypilot.models.pc_compat import get_forced_model_runner
 from openpilot.system.hardware.hw import Paths
 from pathlib import Path
 
@@ -23,8 +24,6 @@ REQUIRED_MIN_SELECTOR_VERSION = 14
 
 CUSTOM_MODEL_PATH = Paths.model_root()
 METADATA_PATH = Path(__file__).parent / '../models/supercombo_metadata.pkl'
-
-FORCE_MODEL_RUNNER = os.getenv("FORCE_MODEL_RUNNER", "").strip().lower()
 
 ModelManager = custom.ModelManagerSP
 
@@ -100,11 +99,13 @@ def get_active_model_runner(params: Params = None, force_check=False) -> custom.
   if params is None:
     params = Params()
 
-  if FORCE_MODEL_RUNNER == "tinygrad":
+  forced_runner = get_forced_model_runner()
+
+  if forced_runner == "tinygrad":
     return custom.ModelManagerSP.Runner.tinygrad
-  if FORCE_MODEL_RUNNER == "stock":
+  if forced_runner == "stock":
     return custom.ModelManagerSP.Runner.stock
-  if FORCE_MODEL_RUNNER == "snpe":
+  if forced_runner == "snpe":
     return custom.ModelManagerSP.Runner.snpe
 
   if (cached_runner_type := params.get("ModelRunnerTypeCache")) and not force_check:

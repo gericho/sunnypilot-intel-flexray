@@ -1,18 +1,9 @@
 #!/usr/bin/env python3
 import os
 from openpilot.system.hardware import TICI
-if os.getenv('SP_DEVICE_TYPE') == 'PC':
-  os.environ['DEV'] = 'CL'
-else:
-  os.environ.setdefault('DEV', 'QCOM' if TICI else 'CPU')
-USBGPU = "USBGPU" in os.environ
-if USBGPU:
-  os.environ['DEV'] = 'AMD'
-  os.environ['AMD_IFACE'] = 'USB'
-from tinygrad.helpers import getenv as tinygrad_getenv
-from tinygrad.device import Device
-tinygrad_getenv.cache_clear()
-Device.__dict__.pop('DEFAULT', None)
+from openpilot.sunnypilot.pc_runtime.helpers import configure_tinygrad_runtime
+
+configure_tinygrad_runtime('QCOM' if TICI else 'CPU')
 from tinygrad.tensor import Tensor
 import time
 import numpy as np

@@ -25,6 +25,7 @@ from openpilot.system.version import get_build_metadata
 from openpilot.system.hardware import HARDWARE
 
 from openpilot.sunnypilot.mads.mads import ModularAssistiveDrivingSystem
+from openpilot.sunnypilot.pc_runtime.helpers import get_selfdrived_init_timeout, get_selfdrived_packets
 from openpilot.sunnypilot import get_sanitize_int_param
 from openpilot.sunnypilot.selfdrive.car.car_specific import CarSpecificEventsSP
 from openpilot.sunnypilot.selfdrive.car.cruise_helpers import CruiseHelper
@@ -34,8 +35,7 @@ from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
 REPLAY = "REPLAY" in os.environ
 SIMULATION = "SIMULATION" in os.environ
 TESTING_CLOSET = "TESTING_CLOSET" in os.environ
-PC_WEBCAM = os.getenv("SP_DEVICE_TYPE") == "PC" and os.getenv("USE_WEBCAM") == "1"
-INIT_TIMEOUT = 20.0 if PC_WEBCAM else 6.0
+INIT_TIMEOUT = get_selfdrived_init_timeout()
 
 LONGITUDINAL_PERSONALITY_MAP = {v: k for k, v in log.LongitudinalPersonality.schema.enumerants.items()}
 
@@ -84,13 +84,11 @@ class SelfdriveD(CruiseHelper):
     self.pm = messaging.PubMaster(['selfdriveState', 'onroadEvents'] + ['selfdriveStateSP', 'onroadEventsSP'])
 
     self.gps_location_service = get_gps_location_service(self.params)
-    self.gps_packets = [self.gps_location_service]
-    self.sensor_packets = ["accelerometer", "gyroscope"]
-    self.camera_packets = ["roadCameraState", "driverCameraState", "wideRoadCameraState"]
-    if PC_WEBCAM:
-      self.gps_packets = []
-      self.sensor_packets = []
-      self.camera_packets = ["roadCameraState"]
+    self.gps_packets, self.sensor_packets, self.camera_packets = get_selfdrived_packets(
+      [self.gps_location_service],
+      ["accelerometer", "gyroscope"],
+      ["roadCameraState", "driverCameraState", "wideRoadCameraState"],
+    )
 
     # TODO: de-couple selfdrived with card/conflate on carState without introducing controls mismatches
     self.car_state_sock = messaging.sub_sock('carState', timeout=20)

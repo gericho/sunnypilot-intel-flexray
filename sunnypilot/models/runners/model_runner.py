@@ -1,9 +1,9 @@
 from abc import abstractmethod, ABC
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 from openpilot.sunnypilot.models.helpers import get_active_bundle
+from openpilot.sunnypilot.models.pc_compat import get_default_split_models
 from openpilot.sunnypilot.models.runners.constants import NumpyDict, ShapeDict, Model, SliceDict, SEND_RAW_PRED, ModelType
 from openpilot.system.hardware.hw import Paths
 import pickle
@@ -108,18 +108,7 @@ class ModelRunner(ModularRunner):
     """Loads the active model bundle configuration and sets up ModelData."""
     bundle = get_active_bundle()
     if not bundle:
-      default_models = [
-        SimpleNamespace(
-          type=SimpleNamespace(raw=ModelType.vision),
-          artifact=SimpleNamespace(fileName="driving_vision_tinygrad.pkl", path=str(DEFAULT_MODEL_DIR / "driving_vision_tinygrad.pkl")),
-          metadata=SimpleNamespace(fileName="driving_vision_metadata.pkl", path=str(DEFAULT_MODEL_DIR / "driving_vision_metadata.pkl")),
-        ),
-        SimpleNamespace(
-          type=SimpleNamespace(raw=ModelType.policy),
-          artifact=SimpleNamespace(fileName="driving_policy_tinygrad.pkl", path=str(DEFAULT_MODEL_DIR / "driving_policy_tinygrad.pkl")),
-          metadata=SimpleNamespace(fileName="driving_policy_metadata.pkl", path=str(DEFAULT_MODEL_DIR / "driving_policy_metadata.pkl")),
-        ),
-      ]
+      default_models = get_default_split_models(DEFAULT_MODEL_DIR)
       self.models = {model.type.raw: ModelData(model) for model in default_models}
       self.is_20hz = True
       self.is_20hz_3d = True
