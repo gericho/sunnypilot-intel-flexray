@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 import os
 from openpilot.system.hardware import TICI
-os.environ['DEV'] = 'QCOM' if TICI else 'CPU'
+if os.getenv('SP_DEVICE_TYPE') == 'PC':
+  os.environ['DEV'] = 'CL'
+else:
+  os.environ.setdefault('DEV', 'QCOM' if TICI else 'CPU')
 USBGPU = "USBGPU" in os.environ
 if USBGPU:
   os.environ['DEV'] = 'AMD'
   os.environ['AMD_IFACE'] = 'USB'
+from tinygrad.helpers import getenv as tinygrad_getenv
+from tinygrad.device import Device
+tinygrad_getenv.cache_clear()
+Device.__dict__.pop('DEFAULT', None)
+from tinygrad.tensor import Tensor
 import time
 import numpy as np
 import cereal.messaging as messaging
@@ -65,7 +73,7 @@ class ModelState(ModelStateBase):
 
     model_bundle = get_active_bundle()
     self.generation = model_bundle.generation if model_bundle is not None else None
-    overrides = {override.key: override.value for override in model_bundle.overrides}
+    overrides = {override.key: override.value for override in model_bundle.overrides} if model_bundle is not None else {}
 
     self.LAT_SMOOTH_SECONDS = float(overrides.get('lat', ".0"))
     self.LONG_SMOOTH_SECONDS = float(overrides.get('long', ".0"))

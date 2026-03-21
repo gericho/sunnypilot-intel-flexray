@@ -24,6 +24,8 @@ REQUIRED_MIN_SELECTOR_VERSION = 14
 CUSTOM_MODEL_PATH = Paths.model_root()
 METADATA_PATH = Path(__file__).parent / '../models/supercombo_metadata.pkl'
 
+FORCE_MODEL_RUNNER = os.getenv("FORCE_MODEL_RUNNER", "").strip().lower()
+
 ModelManager = custom.ModelManagerSP
 
 
@@ -97,6 +99,13 @@ def get_active_model_runner(params: Params = None, force_check=False) -> custom.
   """
   if params is None:
     params = Params()
+
+  if FORCE_MODEL_RUNNER == "tinygrad":
+    return custom.ModelManagerSP.Runner.tinygrad
+  if FORCE_MODEL_RUNNER == "stock":
+    return custom.ModelManagerSP.Runner.stock
+  if FORCE_MODEL_RUNNER == "snpe":
+    return custom.ModelManagerSP.Runner.snpe
 
   if (cached_runner_type := params.get("ModelRunnerTypeCache")) and not force_check:
     if isinstance(cached_runner_type, str) and cached_runner_type.isdigit():
