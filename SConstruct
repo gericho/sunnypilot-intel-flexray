@@ -16,6 +16,9 @@ Decider('MD5-timestamp')
 
 SetOption('num_jobs', max(1, int(os.cpu_count()/2)))
 
+AddOption('--asan', action='store_true', help='turn on ASAN')
+AddOption('--ubsan', action='store_true', help='turn on UBSan')
+AddOption('--mutation', action='store_true', help='generate mutation-ready code')
 AddOption('--ccflags', action='store', type='string', default='', help='pass arbitrary flags over the command line')
 AddOption('--verbose', action='store_true', default=False, help='show full build commands')
 AddOption('--minimal',
@@ -48,7 +51,7 @@ pkgs = [importlib.import_module(name) for name in pkg_names]
 # vendored in commaai/dependencies.
 allowed_system_libs = {
   "EGL", "GLESv2", "GL", "Qt5Charts", "Qt5Core", "Qt5Gui", "Qt5Widgets",
-  "dl", "drm", "gbm", "m", "pthread",
+  "dl", "drm", "gbm", "m", "pthread", "usb-1.0",
 }
 
 def _resolve_lib(env, name):

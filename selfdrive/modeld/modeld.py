@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 import os
 from openpilot.system.hardware import TICI
-os.environ['DEV'] = 'QCOM' if TICI else 'CPU'
+if os.getenv('SP_DEVICE_TYPE') == 'PC':
+  os.environ['DEV'] = 'CL'
+else:
+  os.environ.setdefault('DEV', 'QCOM' if TICI else 'CPU')
 USBGPU = "USBGPU" in os.environ
 if USBGPU:
   os.environ['DEV'] = 'AMD'
   os.environ['AMD_IFACE'] = 'USB'
+from tinygrad.helpers import getenv as tinygrad_getenv
+from tinygrad.device import Device
+tinygrad_getenv.cache_clear()
+Device.__dict__.pop('DEFAULT', None)
 from tinygrad.tensor import Tensor
 import time
 import pickle
@@ -149,6 +156,7 @@ class ModelState(ModelStateBase):
   def __init__(self):
     ModelStateBase.__init__(self)
     self.LAT_SMOOTH_SECONDS = LAT_SMOOTH_SECONDS
+    self.vision_device = os.getenv("DEV", "CPU")
     with open(VISION_METADATA_PATH, 'rb') as f:
       vision_metadata = pickle.load(f)
       self.vision_input_shapes =  vision_metadata['input_shapes']
@@ -171,8 +179,8 @@ class ModelState(ModelStateBase):
       self.full_input_queues.update_dtypes_and_shapes({k: self.numpy_inputs[k].dtype}, {k: self.numpy_inputs[k].shape})
     self.full_input_queues.reset()
 
-    self.img_queues = {'img': Tensor.zeros(IMG_QUEUE_SHAPE, dtype='uint8').contiguous().realize(),
-                       'big_img': Tensor.zeros(IMG_QUEUE_SHAPE, dtype='uint8').contiguous().realize()}
+    self.img_queues = {'img': Tensor.zeros(IMG_QUEUE_SHAPE, dtype='uint8', device=self.vision_device).contiguous().realize(),
+                       'big_img': Tensor.zeros(IMG_QUEUE_SHAPE, dtype='uint8', device=self.vision_device).contiguous().realize()}
     self.full_frames : dict[str, Tensor] = {}
     self._blob_cache : dict[int, Tensor] = {}
     self.transforms_np = {k: np.zeros((3,3), dtype=np.float32) for k in self.img_queues}
@@ -210,7 +218,7 @@ class ModelState(ModelStateBase):
       # There is a ringbuffer of imgs, just cache tensors pointing to all of them
       cache_key = (key, ptr)
       if cache_key not in self._blob_cache:
-        self._blob_cache[cache_key] = Tensor.from_blob(ptr, (yuv_size,), dtype='uint8')
+        self._blob_cache[cache_key] = Tensor.from_blob(ptr, (yuv_size,), dtype='uint8', device=self.vision_device)
       self.full_frames[key] = self._blob_cache[cache_key]
     for key in bufs.keys():
       self.transforms_np[key][:,:] = transforms[key][:,:]

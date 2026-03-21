@@ -76,9 +76,9 @@ class Sidebar(Widget, SidebarSP):
     self._connect_status = MetricData(tr_noop("CONNECT"), tr_noop("OFFLINE"), Colors.WARNING)
     self._recording_audio = False
 
-    self._home_img = gui_app.texture("images/button_home.png", HOME_BTN.width, HOME_BTN.height)
-    self._flag_img = gui_app.texture("images/button_flag.png", HOME_BTN.width, HOME_BTN.height)
-    self._settings_img = gui_app.texture("images/button_settings.png", SETTINGS_BTN.width, SETTINGS_BTN.height)
+    self._home_img = gui_app.texture("images/button_home.png", int(HOME_BTN.width), int(HOME_BTN.height))
+    self._flag_img = gui_app.texture("images/button_flag.png", int(HOME_BTN.width), int(HOME_BTN.height))
+    self._settings_img = gui_app.texture("images/button_settings.png", int(SETTINGS_BTN.width), int(SETTINGS_BTN.height))
     self._mic_img = gui_app.texture("icons/microphone.png", 30, 30)
     self._mic_indicator_rect = rl.Rectangle(0, 0, 0, 0)
     self._font_regular = gui_app.font(FontWeight.NORMAL)

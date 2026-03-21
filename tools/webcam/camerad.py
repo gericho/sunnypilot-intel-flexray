@@ -2,6 +2,7 @@
 import threading
 import os
 import platform
+import time
 from collections import namedtuple
 
 from msgq.visionipc import VisionIpcServer, VisionStreamType
@@ -13,11 +14,16 @@ from openpilot.common.realtime import Ratekeeper
 ROAD_CAM = os.getenv("ROAD_CAM", "0")
 WIDE_CAM = os.getenv("WIDE_CAM")
 DRIVER_CAM = os.getenv("DRIVER_CAM")
+MAIN_CAM_AS_WIDE = os.getenv("WEBCAM_MAIN_IS_WIDE", "0").strip().lower() in ("1", "true", "yes", "on")
+WEBCAM_PROFILE = os.getenv("WEBCAM_PROFILE", "0").strip().lower() in ("1", "true", "yes", "on")
+PROFILE_INTERVAL_S = float(os.getenv("WEBCAM_PROFILE_INTERVAL", "5"))
 
 CameraType = namedtuple("CameraType", ["msg_name", "stream_type", "cam_id"])
 
 CAMERAS = [
-  CameraType("roadCameraState", VisionStreamType.VISION_STREAM_ROAD, ROAD_CAM)
+  CameraType("wideRoadCameraState" if MAIN_CAM_AS_WIDE else "roadCameraState",
+             VisionStreamType.VISION_STREAM_WIDE_ROAD if MAIN_CAM_AS_WIDE else VisionStreamType.VISION_STREAM_ROAD,
+             ROAD_CAM)
 ]
 if WIDE_CAM:
   CAMERAS.append(CameraType("wideRoadCameraState", VisionStreamType.VISION_STREAM_WIDE_ROAD, WIDE_CAM))
@@ -39,8 +45,10 @@ class Camerad:
     self.vipc_server.start_listener()
 
   def _send_yuv(self, yuv, frame_id, pub_type, yuv_type):
-    eof = int(frame_id * 0.05 * 1e9)
-    self.vipc_server.send(yuv_type, yuv, frame_id, eof, eof)
+    # Use monotonic timestamps in ns (same time domain expected by loggerd/Cabana).
+    # frame_id-relative timestamps break playback/signal sync.
+    eof_ns = time.monotonic_ns()
+    self.vipc_server.send(yuv_type, yuv, frame_id, eof_ns, eof_ns)
     dat = messaging.new_message(pub_type, valid=True)
     msg = {
       "frameId": frame_id,
@@ -52,10 +60,51 @@ class Camerad:
     self.pm.send(pub_type, dat)
 
   def camera_runner(self, cam):
-    rk = Ratekeeper(20, None)
-    for yuv in cam.read_frames():
+    rk = Ratekeeper(max(1.0, float(cam.fps)), None)
+    interval_start = time.monotonic()
+    frame_count = 0
+    sums = {
+      "read_ms": 0.0,
+      "flip_ms": 0.0,
+      "convert_ms": 0.0,
+      "payload_ms": 0.0,
+      "send_ms": 0.0,
+    }
+
+    for yuv, stage in cam.read_frames():
+      t_send = time.perf_counter() if WEBCAM_PROFILE else 0.0
       self._send_yuv(yuv, cam.cur_frame_id, cam.cam_type_state, cam.stream_type)
+      send_ms = (time.perf_counter() - t_send) * 1000.0 if WEBCAM_PROFILE else 0.0
       cam.cur_frame_id += 1
+      if WEBCAM_PROFILE and stage is not None:
+        frame_count += 1
+        sums["read_ms"] += stage["read_ms"]
+        sums["flip_ms"] += stage["flip_ms"]
+        sums["convert_ms"] += stage["convert_ms"]
+        sums["payload_ms"] += stage["payload_ms"]
+        sums["send_ms"] += send_ms
+
+        now = time.monotonic()
+        elapsed = now - interval_start
+        if elapsed >= PROFILE_INTERVAL_S:
+          fps = frame_count / elapsed if elapsed > 0 else 0.0
+          log_line = " ".join((
+            f"[webcamerad:{cam.cam_type_state}]",
+            f"fps={fps:.2f}",
+            f"read_ms={sums['read_ms']/frame_count:.3f}",
+            f"flip_ms={sums['flip_ms']/frame_count:.3f}",
+            f"convert_ms={sums['convert_ms']/frame_count:.3f}",
+            f"payload_ms={sums['payload_ms']/frame_count:.3f}",
+            f"send_ms={sums['send_ms']/frame_count:.3f}",
+            f"capture_backend={cam.backend}",
+            f"nv12_backend={cam.nv12_backend}",
+            f"flip={cam.flip_mode}",
+          ))
+          print(log_line)
+          interval_start = now
+          frame_count = 0
+          for k in sums:
+            sums[k] = 0.0
       rk.keep_time()
 
   def run(self):

@@ -34,6 +34,8 @@ from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
 REPLAY = "REPLAY" in os.environ
 SIMULATION = "SIMULATION" in os.environ
 TESTING_CLOSET = "TESTING_CLOSET" in os.environ
+PC_WEBCAM = os.getenv("SP_DEVICE_TYPE") == "PC" and os.getenv("USE_WEBCAM") == "1"
+INIT_TIMEOUT = 20.0 if PC_WEBCAM else 6.0
 
 LONGITUDINAL_PERSONALITY_MAP = {v: k for k, v in log.LongitudinalPersonality.schema.enumerants.items()}
 
@@ -85,6 +87,10 @@ class SelfdriveD(CruiseHelper):
     self.gps_packets = [self.gps_location_service]
     self.sensor_packets = ["accelerometer", "gyroscope"]
     self.camera_packets = ["roadCameraState", "driverCameraState", "wideRoadCameraState"]
+    if PC_WEBCAM:
+      self.gps_packets = []
+      self.sensor_packets = []
+      self.camera_packets = ["roadCameraState"]
 
     # TODO: de-couple selfdrived with card/conflate on carState without introducing controls mismatches
     self.car_state_sock = messaging.sub_sock('carState', timeout=20)
@@ -465,7 +471,7 @@ class SelfdriveD(CruiseHelper):
 
     if not self.initialized:
       all_valid = CS.canValid and self.sm.all_checks()
-      timed_out = self.sm.frame * DT_CTRL > 6.
+      timed_out = self.sm.frame * DT_CTRL > INIT_TIMEOUT
       if all_valid or timed_out or (SIMULATION and not REPLAY):
         available_streams = VisionIpcClient.available_streams("camerad", block=False)
         if VisionStreamType.VISION_STREAM_ROAD not in available_streams:
