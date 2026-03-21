@@ -200,6 +200,7 @@ class Camera:
     cmds = [
       ["v4l2-ctl", "-d", self.device_path, f"--set-fmt-video=width={w},height={h},pixelformat={fourcc}"],
       ["v4l2-ctl", "-d", self.device_path, f"--set-parm={fps}"],
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=zoom_absolute=100"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=power_line_frequency=1"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=auto_exposure=1"],
       ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=exposure_time_absolute={self._manual_exposure_default}"],

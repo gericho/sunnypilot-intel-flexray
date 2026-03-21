@@ -226,15 +226,26 @@ This means:
 - Runtime fingerprint: `BMW_I3_EXPERIMENTAL`; `./go.sh` now defaults to `full_experimental` for PC/webcam bring-up on this host.
 - `./go.sh` keeps the PC/webcam hardware adaptations (`USE_WEBCAM=1`, `NOSENSOR=1`) and the dynamic webcam exposure/gain controller, but it no longer forces onroad startup. Startup gating should now follow the normal runtime state instead of a forced PC bring-up path.
 - Current tuned onroad path: `modeld_tinygrad` + `ONNX Runtime` + `OpenVINOExecutionProvider` on the Intel iGPU.
-- Current tuned road-camera path: `ffmpeg` capture, `1280x720`, `MJPG`, `20 fps`.
+- Current tuned road-camera path: `ffmpeg` capture, `640x360`, `MJPG`, `20 fps`.
 - Current PC webcam path uses direct V4L2 control plus direct Logitech BRIO UVC FoV control in `tools/webcam/camera.py`; it does not depend on external camera helper tools.
+- Current PC camera role is `main wide` with a single BRIO feed:
+  - `wideRoadCameraState` is published as the primary stream
+  - `modeld_v2` runs with `main_wide_camera=True`
+  - no duplicate physical camera is required; the extra wide input is reused internally by `modeld`
 - `./go.sh` now also starts `scripts/bmw_i3_shadow_logger.py` automatically in background and writes JSONL runtime/shadow data to `<segment>/bmw_i3_shadow/rlog.jsonl` when a route segment exists, with fallback to `/tmp/bmw_i3_shadow/rlog.jsonl` before route creation (stderr in `/tmp/bmw_i3_shadow_logger.stderr`). Disable with `ENABLE_BMW_I3_SHADOW_LOGGER=0`.
 - No special runtime mode is required for the shadow logger: restart `./go.sh` after logger changes, then drive normally. The logger runs continuously and records both stock-derived fields and openpilot-side `op_*` fields in the same JSONL stream.
 - Raw `fcamera.hevc` validation on PC uses frame-count truth; nominal HEVC metadata FPS is treated as informational only.
 - OpenCL is still used for the vision transform/buffer path before inference; inference itself is OpenVINO, not OpenCL.
-- Current BRIO webcam calibration bring-up uses:
-  - `WEBCAM_BRIO_FOV = 65`
-  - `dynamic exposure` capped conservatively to keep raw camera FPS stable
+- Current BRIO webcam bring-up uses:
+  - Logitech BRIO FoV preset `65`
+  - horizontal model FoV `58.08°`
+  - `zoom_absolute=100` forced at camera init to avoid stale raw-device zoom
+  - `dynamic exposure` enabled
+  - `dynamic gain` disabled
+  - conservative exposure cap to keep raw camera FPS stable
+- Current PC calibration is dynamic:
+  - `PC_CALIB_FREEZE=0`
+  - no fixed pitch/yaw seed is forced during normal startup
 - Confirmed parsed signals: `gear P/D/N/R`, `blinkers`, `seatbelt`, `driver door`, `gasPressed`, `brake`, `brakePressed`, `cruiseState`, `SET`, `RES`, `ACC`, `TJA`.
 - Current parked-route-confirmed PT-CAN decode basis:
   - blinkers: `502 PTCAN_TURNSIGNALS_CANDIDATE`
