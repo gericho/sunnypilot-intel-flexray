@@ -113,3 +113,93 @@ The current `dev` branch is intentionally focused on these goals:
 2. The README above is a branch-specific engineering summary for `dev`.
    - It is not claiming that every imported piece is finalized or production-ready.
    - It documents what was actually brought over and adapted to make this branch run on the target PC rig.
+
+## Force Audit: Keep / Remove / Make Optional
+
+This section lists the current `dev` branch changes by whether they should be kept as structural work, removed to get closer to upstream stock behavior, or made optional behind runtime configuration.
+
+### Keep
+
+1. [`tools/webcam/camera.py`](/home/gericho/sunnypilot/tools/webcam/camera.py)
+   - required for the PC webcam runtime that does not exist upstream in a usable form for this rig
+
+2. [`tools/webcam/camerad.py`](/home/gericho/sunnypilot/tools/webcam/camerad.py)
+   - required to publish the BRIO camera feed into the runtime on this PC rig
+
+3. [`common/transformations/camera.py`](/home/gericho/sunnypilot/common/transformations/camera.py)
+   - should stay because PC runtime needs explicit camera geometry support instead of upstream device defaults
+
+4. [`.gitmodules`](/home/gericho/sunnypilot/.gitmodules)
+5. [panda](/home/gericho/sunnypilot/panda)
+6. [opendbc_repo](/home/gericho/sunnypilot/opendbc_repo)
+7. [selfdrive/pandad](/home/gericho/sunnypilot/selfdrive/pandad)
+   - these are structural dependencies for the Pico FlexRay hardware path, not temporary forcing knobs
+
+8. [`SConstruct`](/home/gericho/sunnypilot/SConstruct)
+   - keep only the minimum build compatibility needed for the imported `pandad` path
+
+9. [`selfdrive/ui/layouts/sidebar.py`](/home/gericho/sunnypilot/selfdrive/ui/layouts/sidebar.py)
+   - keep as a PC compatibility fix unless upstream resolves the same crash on this platform
+
+10. [`sunnypilot/pc_runtime/helpers.py`](/home/gericho/sunnypilot/sunnypilot/pc_runtime/helpers.py)
+11. [`sunnypilot/pc_runtime/__init__.py`](/home/gericho/sunnypilot/sunnypilot/pc_runtime/__init__.py)
+12. [`sunnypilot/models/pc_compat.py`](/home/gericho/sunnypilot/sunnypilot/models/pc_compat.py)
+   - keep because they isolate PC-specific behavior from shared upstream files
+
+### Remove If The Goal Is "Stay Stock"
+
+1. `FORCE_MODEL_RUNNER=tinygrad` in [`go_pc_webcam.sh`](/home/gericho/sunnypilot/go_pc_webcam.sh)
+   - this explicitly overrides normal model-runner selection
+
+2. `USE_ONNX=1` and `ORT_BACKEND=openvino` in [`go_pc_webcam.sh`](/home/gericho/sunnypilot/go_pc_webcam.sh)
+   - these explicitly force the OpenVINO path instead of leaving selection to the upstream default behavior
+
+3. `DEV=CL` in [`go_pc_webcam.sh`](/home/gericho/sunnypilot/go_pc_webcam.sh)
+   - this is a direct device/runtime force
+
+4. `ROAD_HFOV_DEG=60` and `WIDE_HFOV_DEG=58.08` in [`go_pc_webcam.sh`](/home/gericho/sunnypilot/go_pc_webcam.sh)
+   - these are geometry forcing knobs in the launcher
+
+5. `ROAD_W=640`, `ROAD_H=360`, `ROAD_FPS=20`, `ROAD_FOURCC=MJPG` in [`go_pc_webcam.sh`](/home/gericho/sunnypilot/go_pc_webcam.sh)
+   - these are explicit runtime-camera forcing choices
+
+6. all `WEBCAM_DYNAMIC_*` knobs in [`go_pc_webcam.sh`](/home/gericho/sunnypilot/go_pc_webcam.sh)
+   - they force the custom exposure controller behavior instead of leaving the camera path closer to stock defaults
+
+7. `WEBCAM_BRIO_FOV=65` in [`go_pc_webcam.sh`](/home/gericho/sunnypilot/go_pc_webcam.sh)
+   - this is a hardware preset force
+
+### Better As Optional
+
+1. [`selfdrive/selfdrived/selfdrived.py`](/home/gericho/sunnypilot/selfdrive/selfdrived/selfdrived.py)
+   - current PC webcam logic reduces expected sensors and extends init timeout
+   - useful for PC bring-up, but should ideally be active only behind a dedicated PC mode
+
+2. [`sunnypilot/modeld_v2/modeld.py`](/home/gericho/sunnypilot/sunnypilot/modeld_v2/modeld.py)
+   - current PC behavior forces tinygrad/OpenCL device setup for warp stability
+   - keep the code path, but make it clearly conditional and isolated to PC runtime
+
+3. [`sunnypilot/models/helpers.py`](/home/gericho/sunnypilot/sunnypilot/models/helpers.py)
+   - forced runner selection is useful for bring-up and benchmarking
+   - should remain optional, not the default expectation
+
+4. [`sunnypilot/models/runners/helpers.py`](/home/gericho/sunnypilot/sunnypilot/models/runners/helpers.py)
+   - ONNX runner selection via `USE_ONNX` is valid for PC, but should remain an explicit opt-in path
+
+5. [`sunnypilot/models/runners/model_runner.py`](/home/gericho/sunnypilot/sunnypilot/models/runners/model_runner.py)
+   - stock split-model fallback is useful for PC bring-up without a model manager bundle
+   - should be treated as a compatibility fallback, not as a hidden default for all environments
+
+6. [`sunnypilot/models/runners/onnx/onnx_runner.py`](/home/gericho/sunnypilot/sunnypilot/models/runners/onnx/onnx_runner.py)
+   - the backward-compatible legacy call handling should remain only as long as `modeld_v2` still uses the old call pattern
+
+### Summary
+
+If the target is a strictly stock-like system, the main forcing surface is:
+- [`go_pc_webcam.sh`](/home/gericho/sunnypilot/go_pc_webcam.sh)
+- [`sunnypilot/models/helpers.py`](/home/gericho/sunnypilot/sunnypilot/models/helpers.py)
+- [`sunnypilot/models/runners/helpers.py`](/home/gericho/sunnypilot/sunnypilot/models/runners/helpers.py)
+- [`selfdrive/selfdrived/selfdrived.py`](/home/gericho/sunnypilot/selfdrive/selfdrived/selfdrived.py)
+- [`sunnypilot/modeld_v2/modeld.py`](/home/gericho/sunnypilot/sunnypilot/modeld_v2/modeld.py)
+
+If the target is a working PC rig, most of the structural pieces should stay, but the launcher-level forcing should be reviewed first.
