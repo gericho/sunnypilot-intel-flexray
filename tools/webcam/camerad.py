@@ -14,16 +14,13 @@ from openpilot.common.realtime import Ratekeeper
 ROAD_CAM = os.getenv("ROAD_CAM", "0")
 WIDE_CAM = os.getenv("WIDE_CAM")
 DRIVER_CAM = os.getenv("DRIVER_CAM")
-MAIN_CAM_AS_WIDE = os.getenv("WEBCAM_MAIN_IS_WIDE", "0").strip().lower() in ("1", "true", "yes", "on")
 WEBCAM_PROFILE = os.getenv("WEBCAM_PROFILE", "0").strip().lower() in ("1", "true", "yes", "on")
 PROFILE_INTERVAL_S = float(os.getenv("WEBCAM_PROFILE_INTERVAL", "5"))
 
 CameraType = namedtuple("CameraType", ["msg_name", "stream_type", "cam_id"])
 
 CAMERAS = [
-  CameraType("wideRoadCameraState" if MAIN_CAM_AS_WIDE else "roadCameraState",
-             VisionStreamType.VISION_STREAM_WIDE_ROAD if MAIN_CAM_AS_WIDE else VisionStreamType.VISION_STREAM_ROAD,
-             ROAD_CAM)
+  CameraType("roadCameraState", VisionStreamType.VISION_STREAM_ROAD, ROAD_CAM)
 ]
 if WIDE_CAM:
   CAMERAS.append(CameraType("wideRoadCameraState", VisionStreamType.VISION_STREAM_WIDE_ROAD, WIDE_CAM))

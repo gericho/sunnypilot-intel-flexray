@@ -1,5 +1,4 @@
 import time
-import os
 import numpy as np
 import pyray as rl
 from cereal import log, messaging
@@ -23,8 +22,7 @@ if gui_app.sunnypilot_ui():
 
 OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.LiveCalibrationData.Status.calibrated
-MAIN_CAM_AS_WIDE = os.getenv("WEBCAM_MAIN_IS_WIDE", "0").strip().lower() in ("1", "true", "yes", "on")
-ROAD_CAM = VisionStreamType.VISION_STREAM_WIDE_ROAD if MAIN_CAM_AS_WIDE else VisionStreamType.VISION_STREAM_ROAD
+ROAD_CAM = VisionStreamType.VISION_STREAM_ROAD
 WIDE_CAM = VisionStreamType.VISION_STREAM_WIDE_ROAD
 DEFAULT_DEVICE_CAMERA = DEVICE_CAMERAS["tici", "ar0231"]
 
@@ -149,10 +147,8 @@ class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
   def _update_calibration(self):
     # Update device camera if not already set
     sm = ui_state.sm
-    if not self.device_camera and sm.seen['deviceState']:
-      camera_state = sm['roadCameraState'] if sm.seen['roadCameraState'] else sm['wideRoadCameraState']
-      if camera_state is not None:
-        self.device_camera = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(camera_state.sensor))]
+    if not self.device_camera and sm.seen['roadCameraState'] and sm.seen['deviceState']:
+      self.device_camera = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))]
 
     # Check if live calibration data is available and valid
     if not (sm.updated["liveCalibration"] and sm.valid['liveCalibration']):

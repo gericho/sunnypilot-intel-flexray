@@ -57,24 +57,15 @@ _neo_config = DeviceCameraConfig(CameraConfig(1164, 874, 910.0), CameraConfig(81
 def _build_pc_webcam_config() -> DeviceCameraConfig:
   width = int(os.getenv("ROAD_W", 640))
   height = int(os.getenv("ROAD_H", 360))
-  road_focal_override = os.getenv("ROAD_FOCAL_PIXELS")
-  if road_focal_override is not None:
-    road_focal_length = float(road_focal_override)
+  focal_override = os.getenv("ROAD_FOCAL_PIXELS")
+  if focal_override is not None:
+    focal_length = float(focal_override)
   else:
-    road_hfov_deg = float(os.getenv("ROAD_HFOV_DEG", 60.0))
-    road_focal_length = (width / 2.0) / math.tan(math.radians(road_hfov_deg) / 2.0)
+    hfov_deg = float(os.getenv("ROAD_HFOV_DEG", 60.0))
+    focal_length = (width / 2.0) / math.tan(math.radians(hfov_deg) / 2.0)
 
-  wide_focal_override = os.getenv("WIDE_FOCAL_PIXELS")
-  if wide_focal_override is not None:
-    wide_focal_length = float(wide_focal_override)
-  else:
-    wide_hfov_default = os.getenv("WEBCAM_BRIO_FOV", os.getenv("ROAD_HFOV_DEG", "60.0"))
-    wide_hfov_deg = float(os.getenv("WIDE_HFOV_DEG", wide_hfov_default))
-    wide_focal_length = (width / 2.0) / math.tan(math.radians(wide_hfov_deg) / 2.0)
-
-  road_cam = CameraConfig(width, height, road_focal_length)
-  wide_cam = CameraConfig(width, height, wide_focal_length)
-  return DeviceCameraConfig(road_cam, road_cam, wide_cam)
+  road_cam = CameraConfig(width, height, focal_length)
+  return DeviceCameraConfig(road_cam, road_cam, _NoneCameraConfig())
 
 def get_device_camera_config(device_type: str, sensor: str) -> DeviceCameraConfig:
   if (device_type, sensor) in (("pc", "unknown"), ("unknown", "unknown")):
