@@ -121,17 +121,20 @@ export WINDOW_POS="${UI_X},${UI_Y}"
 export_default WEBCAM_PROFILE 0
 export_default WEBCAM_PROFILE_INTERVAL 5
 export_default WEBCAM_BACKEND ffmpeg
+export_default WEBCAM_BRIO_FOV 65
 export_default WEBCAM_DYNAMIC_EXPOSURE 1
-export_default WEBCAM_DYNAMIC_GAIN 1
+export_default WEBCAM_DYNAMIC_GAIN 0
+export_default WEBCAM_MANUAL_EXPOSURE 24
+export_default WEBCAM_MANUAL_GAIN 0
 export_default WEBCAM_DYNAMIC_EXPOSURE_MIN 8
-export_default WEBCAM_DYNAMIC_EXPOSURE_MAX 1500
+export_default WEBCAM_DYNAMIC_EXPOSURE_MAX 500
 export_default WEBCAM_DYNAMIC_EXPOSURE_INITIAL 250
-export_default WEBCAM_DYNAMIC_EXPOSURE_INTERVAL 0.1
-export_default WEBCAM_DYNAMIC_EXPOSURE_SAMPLE_EVERY 2
+export_default WEBCAM_DYNAMIC_EXPOSURE_INTERVAL 0.5
+export_default WEBCAM_DYNAMIC_EXPOSURE_SAMPLE_EVERY 10
 export_default WEBCAM_DYNAMIC_EXPOSURE_TARGET_LOW 70
 export_default WEBCAM_DYNAMIC_EXPOSURE_TARGET_HIGH 135
 export_default WEBCAM_DYNAMIC_EXPOSURE_TARGET_MID 96
-export_default WEBCAM_DYNAMIC_EXPOSURE_MAX_DELTA 250
+export_default WEBCAM_DYNAMIC_EXPOSURE_MAX_DELTA 80
 export_default WEBCAM_DYNAMIC_GAIN_MAX 255
 export_default WEBCAM_DYNAMIC_GAIN_START_EXPOSURE 120
 export_default WEBCAM_DYNAMIC_GAIN_FULL_EXPOSURE 1500
@@ -170,10 +173,7 @@ export_default ROAD_W 640
 export_default ROAD_H 360
 export_default ROAD_FPS 20
 export_default ROAD_FOURCC MJPG # YUYV NV12 MJPG
-export_default ROAD_HFOV_DEG 50
-export_default PC_CALIB_FREEZE 1
-export_default PC_CALIB_PITCH_RAD 0.059738
-export_default PC_CALIB_YAW_RAD 0.03705092892050743
+export_default PC_CALIB_FREEZE 0
 
 # Driver camera parameters
 export_default DRIVER_W 640
@@ -214,7 +214,8 @@ if [ -n "${DRIVER_CAM:-}" ] && [ -e "/dev/video${DRIVER_CAM}" ]; then
   v4l2-ctl -d "/dev/video${DRIVER_CAM}" --set-parm=${DRIVER_FPS} || true
 fi
 
-python - <<'PY'
+if [ "${PC_CALIB_FREEZE}" = "1" ]; then
+  python - <<'PY'
 import os
 import cereal.messaging as messaging
 from openpilot.common.params import Params
@@ -227,6 +228,7 @@ msg.liveCalibration.validBlocks = 20
 msg.liveCalibration.rpyCalib = [0.0, pitch, yaw]
 Params().put("CalibrationParams", msg.to_bytes())
 PY
+fi
 
 if [ "${ENABLE_BMW_I3_SHADOW_LOGGER}" = "1" ]; then
   pkill -f "scripts/bmw_i3_shadow_logger.py" >/dev/null 2>&1 || true

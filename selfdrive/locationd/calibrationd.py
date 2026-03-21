@@ -117,11 +117,11 @@ class Calibrator:
 
     self.reset(rpy_init, valid_blocks, wide_from_device_euler, height)
     if self.freeze_pc_calib:
-      self._apply_frozen_pc_calib()
+      self._apply_frozen_pc_calib(write_param=True)
     else:
       self.update_status()
 
-  def _apply_frozen_pc_calib(self) -> None:
+  def _apply_frozen_pc_calib(self, write_param: bool = False) -> None:
     self.rpy = PC_CALIB_FROZEN_RPY.copy()
     self.old_rpy = self.rpy.copy()
     self.old_rpy_weight = 0.0
@@ -131,7 +131,7 @@ class Calibrator:
     self.block_idx = 0
     self.idx = 0
     self.cal_status = log.LiveCalibrationData.Status.calibrated
-    if self.param_put:
+    if write_param and self.param_put:
       self.params.put_nonblocking("CalibrationParams", self.get_msg(True).to_bytes())
 
   def reset(self, rpy_init: np.ndarray = RPY_INIT,
@@ -182,7 +182,12 @@ class Calibrator:
 
   def update_status(self) -> None:
     if self.freeze_pc_calib:
-      self._apply_frozen_pc_calib()
+      self.rpy = PC_CALIB_FROZEN_RPY.copy()
+      self.old_rpy = self.rpy.copy()
+      self.old_rpy_weight = 0.0
+      self.calib_spread = np.zeros(3)
+      self.valid_blocks = INPUTS_NEEDED
+      self.cal_status = log.LiveCalibrationData.Status.calibrated
       return
 
     valid_idxs = self.get_valid_idxs()
@@ -239,7 +244,12 @@ class Calibrator:
         self.wide_from_device_euler = np.array(wide_from_device_euler)
       if len(road_transform_trans) == 3 and np.isfinite(road_transform_trans).all():
         self.height = np.array([road_transform_trans[2]])
-      self._apply_frozen_pc_calib()
+      self.rpy = PC_CALIB_FROZEN_RPY.copy()
+      self.old_rpy = self.rpy.copy()
+      self.old_rpy_weight = 0.0
+      self.calib_spread = np.zeros(3)
+      self.valid_blocks = INPUTS_NEEDED
+      self.cal_status = log.LiveCalibrationData.Status.calibrated
       return self.rpy.copy()
 
     self.old_rpy_weight = max(0.0, self.old_rpy_weight - 1/SMOOTH_CYCLES)
