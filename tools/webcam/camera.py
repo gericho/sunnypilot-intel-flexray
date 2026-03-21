@@ -1,3 +1,5 @@
+import ctypes
+import fcntl
 import os
 import subprocess
 import time
@@ -11,6 +13,71 @@ def _env_flag(name: str, default: bool) -> bool:
   if v is None:
     return default
   return v.strip().lower() in ("1", "true", "yes", "on")
+
+IOC_NRBITS = 8
+IOC_TYPEBITS = 8
+IOC_SIZEBITS = 14
+IOC_DIRBITS = 2
+IOC_NRSHIFT = 0
+IOC_TYPESHIFT = IOC_NRSHIFT + IOC_NRBITS
+IOC_SIZESHIFT = IOC_TYPESHIFT + IOC_TYPEBITS
+IOC_DIRSHIFT = IOC_SIZESHIFT + IOC_SIZEBITS
+IOC_WRITE = 1
+IOC_READ = 2
+UVC_SET_CUR = 0x01
+LOGITECH_BRIO_FOV_UNIT = 10
+LOGITECH_BRIO_FOV_SELECTOR = 5
+LOGITECH_BRIO_FOV_MAP = {
+  "90": 0,
+  "78": 1,
+  "65": 2,
+}
+
+
+def _IOC(direction: int, type_chr: str, nr: int, size: int) -> int:
+  return (
+    (direction << IOC_DIRSHIFT) |
+    (ord(type_chr) << IOC_TYPESHIFT) |
+    (nr << IOC_NRSHIFT) |
+    (size << IOC_SIZESHIFT)
+  )
+
+
+class _UvcXuControlQuery(ctypes.Structure):
+  _fields_ = [
+    ("unit", ctypes.c_uint8),
+    ("selector", ctypes.c_uint8),
+    ("query", ctypes.c_uint8),
+    ("size", ctypes.c_uint16),
+    ("data", ctypes.c_void_p),
+  ]
+
+
+UVCIOC_CTRL_QUERY = _IOC(IOC_READ | IOC_WRITE, "u", 0x21, ctypes.sizeof(_UvcXuControlQuery))
+
+
+def _set_brio_fov(device_path: str, fov: str) -> bool:
+  value = LOGITECH_BRIO_FOV_MAP.get(str(fov).strip())
+  if value is None:
+    return False
+  fd = None
+  try:
+    fd = os.open(device_path, os.O_RDWR)
+    buf = ctypes.create_string_buffer(bytes([value]))
+    query = _UvcXuControlQuery(
+      unit=LOGITECH_BRIO_FOV_UNIT,
+      selector=LOGITECH_BRIO_FOV_SELECTOR,
+      query=UVC_SET_CUR,
+      size=1,
+      data=ctypes.addressof(buf),
+    )
+    fcntl.ioctl(fd, UVCIOC_CTRL_QUERY, query)
+    return True
+  except OSError:
+    return False
+  finally:
+    if fd is not None:
+      os.close(fd)
 
 class Camera:
   def __init__(self, cam_type_state, stream_type, camera_id):
@@ -54,6 +121,8 @@ class Camera:
     self._requested_fps = int(fps)
     self._requested_fourcc = fourcc
     self._controls_applied = False
+    self._manual_exposure_default = int(os.getenv("WEBCAM_MANUAL_EXPOSURE", "24"))
+    self._manual_gain_default = int(os.getenv("WEBCAM_MANUAL_GAIN", "0"))
     self._dynamic_exposure_enabled = (
       cam_type_state == "roadCameraState" and
       _env_flag("WEBCAM_DYNAMIC_EXPOSURE", True)
@@ -134,11 +203,14 @@ class Camera:
       ["v4l2-ctl", "-d", self.device_path, f"--set-parm={fps}"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=power_line_frequency=1"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=auto_exposure=1"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=exposure_time_absolute=5"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=exposure_time_absolute={self._manual_exposure_default}"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=backlight_compensation=0"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=gain=0"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=gain={self._manual_gain_default}"],
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=focus_automatic_continuous=0"],
     ]
+    brio_fov = os.getenv("WEBCAM_BRIO_FOV")
+    if brio_fov and self.cam_type_state == "roadCameraState":
+      _set_brio_fov(self.device_path, brio_fov)
     for cmd in cmds:
       try:
         subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
