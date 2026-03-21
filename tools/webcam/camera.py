@@ -85,6 +85,8 @@ class Camera:
       camera_id = int(camera_id)
     except ValueError: # allow strings, ex: /dev/video0
       pass
+    self._main_cam_is_wide = _env_flag("WEBCAM_MAIN_IS_WIDE", False)
+    self._is_main_camera = cam_type_state == "roadCameraState" or (self._main_cam_is_wide and cam_type_state == "wideRoadCameraState")
     self.cam_type_state = cam_type_state
     self.stream_type = stream_type
     self.cur_frame_id = 0
@@ -113,7 +115,7 @@ class Camera:
     self.camera_id = camera_id
     self.device_path = camera_id if isinstance(camera_id, str) and str(camera_id).startswith("/dev/video") else f"/dev/video{camera_id}" if isinstance(camera_id, int) else None
     self.backend = os.getenv("WEBCAM_BACKEND", "opencv").strip().lower()
-    if cam_type_state != "roadCameraState" and self.backend == "ffmpeg":
+    if not self._is_main_camera and self.backend == "ffmpeg":
       self.backend = "opencv"
     self.cap = None
     self._requested_w = int(w)
@@ -123,10 +125,7 @@ class Camera:
     self._controls_applied = False
     self._manual_exposure_default = int(os.getenv("WEBCAM_MANUAL_EXPOSURE", "24"))
     self._manual_gain_default = int(os.getenv("WEBCAM_MANUAL_GAIN", "0"))
-    self._dynamic_exposure_enabled = (
-      cam_type_state == "roadCameraState" and
-      _env_flag("WEBCAM_DYNAMIC_EXPOSURE", True)
-    )
+    self._dynamic_exposure_enabled = self._is_main_camera and _env_flag("WEBCAM_DYNAMIC_EXPOSURE", True)
     self._dynamic_exposure_min = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MIN", "8"))
     self._dynamic_exposure_max = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MAX", "1500"))
     initial_exposure_env = os.getenv("WEBCAM_DYNAMIC_EXPOSURE_INITIAL")
@@ -209,7 +208,7 @@ class Camera:
       ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=focus_automatic_continuous=0"],
     ]
     brio_fov = os.getenv("WEBCAM_BRIO_FOV")
-    if brio_fov and self.cam_type_state == "roadCameraState":
+    if brio_fov and self._is_main_camera:
       _set_brio_fov(self.device_path, brio_fov)
     for cmd in cmds:
       try:

@@ -122,7 +122,9 @@ export_default WEBCAM_PROFILE 0
 export_default WEBCAM_PROFILE_INTERVAL 5
 export_default WEBCAM_BACKEND ffmpeg
 export_default WEBCAM_BRIO_FOV 65
-export_default ROAD_HFOV_DEG 65
+export_default WEBCAM_MAIN_IS_WIDE 1
+export_default ROAD_HFOV_DEG 58.08
+export_default WIDE_HFOV_DEG 58.08
 export_default WEBCAM_DYNAMIC_EXPOSURE 1
 export_default WEBCAM_DYNAMIC_GAIN 0
 export_default WEBCAM_MANUAL_EXPOSURE 24
