@@ -121,6 +121,12 @@ export_default ORT_OPENVINO_EXECUTION_MODE PERFORMANCE
 export_default ORT_OPENVINO_NUM_STREAMS 1
 export_default ORT_OPENVINO_CACHE_DIR "$PWD/.cache/openvino_model_cache"
 
+export_default ENABLE_BMW_I3_SHADOW_LOGGER 1
+export_default BMW_I3_SHADOW_LOGGER_INTERVAL 0.2
+export_default BMW_I3_SHADOW_LOGGER_OUT /tmp/bmw_i3_shadow/rlog.jsonl
+export_default BMW_I3_SHADOW_LOGGER_ERR /tmp/bmw_i3_shadow_logger.stderr
+export_default BMW_I3_SHADOW_LOGGER_PID /tmp/bmw_i3_shadow_logger.pid
+
 if [ "${DISABLE_QCAMERA}" = "1" ]; then
   touch /tmp/disable_qcamera
 else
@@ -163,6 +169,14 @@ fi
 
 if [ -n "$BLOCK_LIST" ]; then
   export BLOCK="$BLOCK_LIST"
+fi
+
+if [ "${ENABLE_BMW_I3_SHADOW_LOGGER}" = "1" ]; then
+  pkill -f "scripts/bmw_i3_shadow_logger.py" >/dev/null 2>&1 || true
+  rm -f "${BMW_I3_SHADOW_LOGGER_PID}"
+  mkdir -p "$(dirname "${BMW_I3_SHADOW_LOGGER_OUT}")"
+  nohup python "$PWD/scripts/bmw_i3_shadow_logger.py"     --out "${BMW_I3_SHADOW_LOGGER_OUT}"     --interval "${BMW_I3_SHADOW_LOGGER_INTERVAL}"     >>"${BMW_I3_SHADOW_LOGGER_ERR}" 2>&1 &
+  echo $! > "${BMW_I3_SHADOW_LOGGER_PID}"
 fi
 
 cd system/manager
