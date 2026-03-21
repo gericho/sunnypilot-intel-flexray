@@ -1,74 +1,115 @@
-![](https://user-images.githubusercontent.com/47793918/233812617-beab2e71-57b9-479e-8bff-c3931347ca40.png)
+# SUNNYPILOT for BMW i3
+FlexRay-CAN (Intel PC/OpenVINO Build)
 
-## 🌞 What is sunnypilot?
-[sunnypilot](https://github.com/sunnyhaibin/sunnypilot) is a fork of comma.ai's openpilot, an open source driver assistance system. sunnypilot offers the user a unique driving experience for over 300+ supported car makes and models with modified behaviors of driving assist engagements. sunnypilot complies with comma.ai's safety rules as accurately as possible.
+![](docs/assets/Gemini_Generated_Image_en6pmeen6pmeen6p.jpg)
 
-## 💭 Join our Community Forum
-Join the official sunnypilot community forum to stay up to date with all the latest features and be a part of shaping the future of sunnypilot!
-* https://community.sunnypilot.ai/
+## Dev Branch Delta From `sunnypilot/sunnypilot`
 
-## Documentation
-https://docs.sunnypilot.ai/ is your one stop shop for everything from features to installation to FAQ about the sunnypilot
+This `dev` branch starts from upstream `sunnypilot/sunnypilot` and adds only the changes needed to bring up the Intel PC + BRIO webcam + Pico FlexRay runtime with the smallest practical delta.
 
-## 🚘 Running on a dedicated device in a car
-First, check out this list of items you'll need to [get started](https://community.sunnypilot.ai/t/getting-started-using-sunnypilot-in-your-supported-car/251).
+## What Was Imported And Adapted
 
-## Installation
-Next, refer to the sunnypilot community forum for [installation instructions](https://community.sunnypilot.ai/t/read-before-installing-sunnypilot/254), as well as a complete list of [Recommended Branch Installations](https://community.sunnypilot.ai/t/recommended-branch-installations/235).
+1. Added a dedicated PC launcher:
+   - [`go_pc_webcam.sh`](/home/gericho/sunnypilot/go_pc_webcam.sh)
+   - keeps PC bring-up separate from upstream [`go.sh`](/home/gericho/sunnypilot/go.sh)
+   - exports only the runtime env needed for webcam, model, encoder and manager startup
 
-## 🎆 Pull Requests
-We welcome both pull requests and issues on GitHub. Bug fixes are encouraged.
+2. Imported the webcam runtime from the fork into a contained area:
+   - [`tools/webcam/camera.py`](/home/gericho/sunnypilot/tools/webcam/camera.py)
+   - [`tools/webcam/camerad.py`](/home/gericho/sunnypilot/tools/webcam/camerad.py)
+   - [`tools/webcam/README.md`](/home/gericho/sunnypilot/tools/webcam/README.md)
 
-Pull requests should be against the most current `master` branch.
+3. Added PC camera geometry support without hardcoding device-camera assumptions into the launcher:
+   - [`common/transformations/camera.py`](/home/gericho/sunnypilot/common/transformations/camera.py)
+   - PC runtime can now derive `fcam` and `ecam` from env such as:
+     - `ROAD_W`, `ROAD_H`
+     - `ROAD_HFOV_DEG` or `ROAD_FOCAL_PIXELS`
+     - `WIDE_HFOV_DEG` or `WIDE_FOCAL_PIXELS`
 
-## 📊 User Data
+4. Added the minimum Panda/FlexRay transport block required for the real hardware rig:
+   - [`.gitmodules`](/home/gericho/sunnypilot/.gitmodules)
+   - [panda](/home/gericho/sunnypilot/panda)
+   - [opendbc_repo](/home/gericho/sunnypilot/opendbc_repo)
+   - [selfdrive/pandad](/home/gericho/sunnypilot/selfdrive/pandad)
+   - this is the minimum structural change needed so upstream `dev` can talk to the Pico FlexRay hardware
 
-By default, sunnypilot uploads the driving data to comma servers. You can also access your data through [comma connect](https://connect.comma.ai/).
+5. Built and enabled the external `pandad` runtime used by the Pico/FlexRay path:
+   - [`selfdrive/pandad`](/home/gericho/sunnypilot/selfdrive/pandad)
+   - [`SConstruct`](/home/gericho/sunnypilot/SConstruct)
+   - the build side was adjusted only as much as needed to compile the imported `pandad`
 
-sunnypilot is open source software. The user is free to disable data collection if they wish to do so.
+6. Fixed the PC UI crash blocker with the smallest viable patch:
+   - [`selfdrive/ui/layouts/sidebar.py`](/home/gericho/sunnypilot/selfdrive/ui/layouts/sidebar.py)
+   - upstream PC UI was passing float dimensions to texture creation on this machine; the patch only normalizes the texture dimensions to integers
 
-sunnypilot logs the road-facing camera, CAN, GPS, IMU, magnetometer, thermal sensors, crashes, and operating system logs.
-The driver-facing camera and microphone are only logged if you explicitly opt-in in settings.
+7. Kept the webcam path on the custom dynamic exposure controller:
+   - [`tools/webcam/camera.py`](/home/gericho/sunnypilot/tools/webcam/camera.py)
+   - active runtime profile on PC uses:
+     - custom dynamic exposure enabled
+     - dynamic gain disabled
+     - BRIO FoV preset through Logitech/UVC handling
 
-By using this software, you understand that use of this software or its related services will generate certain types of user data, which may be logged and stored at the sole discretion of comma. By accepting this agreement, you grant an irrevocable, perpetual, worldwide right to comma for the use of this data.
+8. Enabled `modeld_v2` on PC with ONNX Runtime + OpenVINO instead of the lagging stock tinygrad path:
+   - [`sunnypilot/modeld_v2/modeld.py`](/home/gericho/sunnypilot/sunnypilot/modeld_v2/modeld.py)
+   - [`sunnypilot/modeld_v2/runners/ort_helpers.py`](/home/gericho/sunnypilot/sunnypilot/modeld_v2/runners/ort_helpers.py)
+   - [`sunnypilot/models/runners/onnx/onnx_runner.py`](/home/gericho/sunnypilot/sunnypilot/models/runners/onnx/onnx_runner.py)
+   - [`sunnypilot/models/runners/helpers.py`](/home/gericho/sunnypilot/sunnypilot/models/runners/helpers.py)
+   - [`sunnypilot/models/helpers.py`](/home/gericho/sunnypilot/sunnypilot/models/helpers.py)
 
-## Licensing
+9. Wired the runner selection so the manager actually launches the intended model process:
+   - `FORCE_MODEL_RUNNER=tinygrad` now correctly maps to the `modeld_tinygrad` process selection
+   - `USE_ONNX=1` now switches the runner factory from tinygrad runner classes to the ONNX/OpenVINO runner classes
 
-sunnypilot is released under the [MIT License](LICENSE). This repository includes original work as well as significant portions of code derived from [openpilot by comma.ai](https://github.com/commaai/openpilot), which is also released under the MIT license with additional disclaimers.
+10. Added stock-model fallback for `modeld_v2` so PC bring-up does not depend on a pre-populated `ModelManager_ActiveBundle`:
+   - [`sunnypilot/models/runners/model_runner.py`](/home/gericho/sunnypilot/sunnypilot/models/runners/model_runner.py)
+   - [`sunnypilot/models/pc_compat.py`](/home/gericho/sunnypilot/sunnypilot/models/pc_compat.py)
+   - if there is no active model bundle, the PC path falls back to stock:
+     - `driving_vision.onnx`
+     - `driving_policy.onnx`
+     - stock metadata files from [`selfdrive/modeld/models`](/home/gericho/sunnypilot/selfdrive/modeld/models)
 
-The original openpilot license notice, including comma.ai’s indemnification and alpha software disclaimer, is reproduced below as required:
+11. Added compatibility glue so legacy `modeld_v2` call sites can drive the ONNX runner without a broad refactor:
+   - [`sunnypilot/models/runners/onnx/onnx_runner.py`](/home/gericho/sunnypilot/sunnypilot/models/runners/onnx/onnx_runner.py)
+   - the runner now accepts both:
+     - the new `imgs_cl, numpy_inputs, frames` style
+     - the existing `modeld_v2` tinygrad-style call path
 
-> openpilot is released under the MIT license. Some parts of the software are released under other licenses as specified.
->
-> Any user of this software shall indemnify and hold harmless Comma.ai, Inc. and its directors, officers, employees, agents, stockholders, affiliates, subcontractors and customers from and against all allegations, claims, actions, suits, demands, damages, liabilities, obligations, losses, settlements, judgments, costs and expenses (including without limitation attorneys’ fees and costs) which arise out of, relate to or result from any use of this software by user.
->
-> **THIS IS ALPHA QUALITY SOFTWARE FOR RESEARCH PURPOSES ONLY. THIS IS NOT A PRODUCT.
-> YOU ARE RESPONSIBLE FOR COMPLYING WITH LOCAL LAWS AND REGULATIONS.
-> NO WARRANTY EXPRESSED OR IMPLIED.**
+12. Kept the tinygrad warp path on CL for PC so the OpenVINO runner does not crash on JIT input-device mismatches:
+   - [`sunnypilot/modeld_v2/modeld.py`](/home/gericho/sunnypilot/sunnypilot/modeld_v2/modeld.py)
+   - the PC path explicitly resets tinygrad runtime device selection and keeps warp execution on `CL`
 
-For full license terms, please see the [`LICENSE`](LICENSE) file.
+13. Reduced false startup failures in `selfdrived` for the PC webcam rig:
+   - [`selfdrive/selfdrived/selfdrived.py`](/home/gericho/sunnypilot/selfdrive/selfdrived/selfdrived.py)
+   - longer init timeout for PC webcam bring-up
+   - camera/sensor/gps packet expectations trimmed to what the PC rig actually provides
+   - guard added so missing `gpsLocation` does not crash `selfdrived`
 
-## 💰 Support sunnypilot
-If you find any of the features useful, consider becoming a [sponsor on GitHub](https://github.com/sponsors/sunnyhaibin) to support future feature development and improvements.
+14. Extracted PC-specific logic into dedicated helper modules to keep future upstream merges simpler:
+   - [`sunnypilot/pc_runtime/helpers.py`](/home/gericho/sunnypilot/sunnypilot/pc_runtime/helpers.py)
+   - [`sunnypilot/pc_runtime/__init__.py`](/home/gericho/sunnypilot/sunnypilot/pc_runtime/__init__.py)
+   - [`sunnypilot/models/pc_compat.py`](/home/gericho/sunnypilot/sunnypilot/models/pc_compat.py)
+   - these helpers now hold:
+     - PC tinygrad/OpenCL device setup
+     - selfdrived packet policy for PC webcam mode
+     - stock split-model fallback for PC/OpenVINO bring-up
+     - forced runner selection helper
 
+## Current Runtime Direction
 
-By becoming a sponsor, you will gain access to exclusive content, early access to new features, and the opportunity to directly influence the project's development.
+The current `dev` branch is intentionally focused on these goals:
 
+1. keep `master` untouched
+2. keep the PC runtime in separate files where possible
+3. keep the delta against `sunnypilot/sunnypilot` understandable and reviewable
+4. make future merges from upstream easier than they would be with a direct port of the old branch state
 
-<h3>GitHub Sponsor</h3>
+## Notes
 
-<a href="https://github.com/sponsors/sunnyhaibin">
-  <img src="https://user-images.githubusercontent.com/47793918/244135584-9800acbd-69fd-4b2b-bec9-e5fa2d85c817.png" alt="Become a Sponsor" width="300" style="max-width: 100%; height: auto;">
-</a>
-<br>
+1. The PC path is using:
+   - BRIO webcam runtime
+   - Pico FlexRay transport
+   - `modeld_v2` with ONNX Runtime + OpenVINO
 
-<h3>PayPal</h3>
-
-<a href="https://paypal.me/sunnyhaibin0850" target="_blank">
-<img src="https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif" alt="PayPal this" title="PayPal - The safer, easier way to pay online!" border="0" />
-</a>
-<br></br>
-
-Your continuous love and support are greatly appreciated! Enjoy 🥰
-
-<span>-</span> Jason, Founder of sunnypilot
+2. The README above is a branch-specific engineering summary for `dev`.
+   - It is not claiming that every imported piece is finalized or production-ready.
+   - It documents what was actually brought over and adapted to make this branch run on the target PC rig.
