@@ -123,8 +123,19 @@ export_default WEBCAM_PROFILE_INTERVAL 5
 export_default WEBCAM_BACKEND ffmpeg
 export_default WEBCAM_BRIO_FOV 65
 export_default WEBCAM_MAIN_IS_WIDE 1
-export_default ROAD_HFOV_DEG 58.08
-export_default WIDE_HFOV_DEG 58.08
+# Logitech BRIO FoV presets are diagonal. Convert the selected preset to the
+# horizontal 16:9 FoV used by our PC intrinsics/model config.
+BRIO_HFOV_DEG="$(python - <<'PY'
+import math
+diag_fov = 65.0
+w, h = 16.0, 9.0
+diag = math.hypot(w, h)
+hfov = 2.0 * math.degrees(math.atan(math.tan(math.radians(diag_fov / 2.0)) * (w / diag)))
+print(f"{hfov:.6f}")
+PY
+)"
+export_default ROAD_HFOV_DEG "${BRIO_HFOV_DEG}"
+export_default WIDE_HFOV_DEG "${BRIO_HFOV_DEG}"
 export_default WEBCAM_DYNAMIC_EXPOSURE 1
 export_default WEBCAM_DYNAMIC_GAIN 0
 export_default WEBCAM_MANUAL_EXPOSURE 24
