@@ -178,6 +178,13 @@ PYCAM
     sed -n '1,80p' /tmp/webcam_splitter.log >&2 || true
     exit 1
   fi
+  (
+    while kill -0 "$WEBCAM_SPLITTER_PID" >/dev/null 2>&1; do
+      sleep 1
+    done
+    echo "webcam splitter died; stopping runtime" >&2
+    pkill -f 'manager.py|controlsd|modeld_tinygrad|webcamerad|encoderd|loggerd|camerad|ffmpeg .*video10|ffmpeg .*video11|split_dual.sh' >/dev/null 2>&1 || true
+  ) >/tmp/webcam_splitter_watch.log 2>&1 &
 fi
 
 if [ "${DISABLE_QCAMERA}" = "1" ]; then
