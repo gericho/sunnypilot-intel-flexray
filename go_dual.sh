@@ -91,8 +91,23 @@ export_default WEBCAM_PROFILE_INTERVAL 5
 export_default WEBCAM_BACKEND ffmpeg
 export_default WEBCAM_MJPG_QSV 1
 export_default WEBCAM_BRIO_FOV 65
+export_default WEBCAM_SPLIT_ENABLE 1
+export_default WEBCAM_SPLIT_SOURCE_CAM 0
+export_default WEBCAM_SPLIT_WIDE_CAM 10
+export_default WEBCAM_SPLIT_ROAD_CAM 11
+export_default ROAD_CAM 11
+export_default WIDE_CAM 10
+export_default WEBCAM_MAIN_IS_WIDE 0
+export_default ROAD_W 512
+export_default ROAD_H 256
+export_default WIDE_W 640
+export_default WIDE_H 360
+export_default WIDE_FPS 20
+export_default WIDE_FOURCC NV12
+export_default ROAD_FPS 20
+export_default ROAD_FOURCC NV12
 # PC rig intrinsics: keep road/wide configurable from the launcher without patching modeld/UI.
-export_default ROAD_HFOV_DEG 60
+export_default ROAD_HFOV_DEG 40
 export_default WIDE_HFOV_DEG 58.1
 export_default WEBCAM_DYNAMIC_EXPOSURE 1
 export_default WEBCAM_DYNAMIC_GAIN 0
@@ -117,7 +132,7 @@ export_default ORT_BACKEND openvino
 export_default ORT_OPENVINO_DEVICE GPU
 export_default ORT_OPENVINO_FALLBACK_CPU 1
 export_default ORT_OPENVINO_DISABLE_ORT_OPT 1
-export_default ORT_OPENVINO_PERFORMANCE_HINT THROUGHPUT
+export_default ORT_OPENVINO_PERFORMANCE_HINT LATENCY
 export_default ORT_OPENVINO_EXECUTION_MODE PERFORMANCE
 export_default ORT_OPENVINO_NUM_STREAMS 2
 export_default ORT_OPENVINO_CACHE_DIR "$PWD/.cache/openvino_model_cache"
@@ -128,17 +143,48 @@ export_default BMW_I3_SHADOW_LOGGER_OUT /tmp/bmw_i3_shadow/rlog.jsonl
 export_default BMW_I3_SHADOW_LOGGER_ERR /tmp/bmw_i3_shadow_logger.stderr
 export_default BMW_I3_SHADOW_LOGGER_PID /tmp/bmw_i3_shadow_logger.pid
 
+if [ "${WEBCAM_SPLIT_ENABLE}" = "1" ]; then
+  src_dev="/dev/video${WEBCAM_SPLIT_SOURCE_CAM}"
+  wide_dev="/dev/video${WEBCAM_SPLIT_WIDE_CAM}"
+  road_dev="/dev/video${WEBCAM_SPLIT_ROAD_CAM}"
+  if [ ! -e "$src_dev" ] || [ ! -e "$wide_dev" ] || [ ! -e "$road_dev" ]; then
+    echo "Missing webcam split devices: $src_dev $wide_dev $road_dev" >&2
+    exit 1
+  fi
+  pkill -f "ffmpeg.*${wide_dev}.*${road_dev}" >/dev/null 2>&1 || true
+  v4l2-ctl -d "$src_dev" --set-ctrl=auto_exposure=1 >/dev/null 2>&1 || true
+  v4l2-ctl -d "$src_dev" --set-ctrl=exposure_time_absolute=${WEBCAM_MANUAL_EXPOSURE} >/dev/null 2>&1 || true
+  v4l2-ctl -d "$src_dev" --set-ctrl=gain=${WEBCAM_MANUAL_GAIN} >/dev/null 2>&1 || true
+  v4l2-ctl -d "$src_dev" --set-ctrl=backlight_compensation=0 >/dev/null 2>&1 || true
+  v4l2-ctl -d "$src_dev" --set-ctrl=focus_automatic_continuous=0 >/dev/null 2>&1 || true
+  python - <<'PYCAM'
+import os
+from openpilot.tools.webcam.camera import _set_brio_fov
+_set_brio_fov(f"/dev/video{os.getenv('WEBCAM_SPLIT_SOURCE_CAM','0')}", os.getenv('WEBCAM_BRIO_FOV','65'))
+PYCAM
+  {
+    echo "PWD=$PWD"
+    echo "BASH=$(command -v bash)"
+    echo "FFMPEG=$(command -v ffmpeg)"
+    ls -l ./tools/webcam/split_dual.sh
+  } >/tmp/webcam_splitter_trace.log 2>&1
+  : >/tmp/webcam_splitter.log
+  ./tools/webcam/split_dual.sh "$src_dev" "$wide_dev" "$road_dev" "${WIDE_FPS}" >/tmp/webcam_splitter.log 2>&1 &
+  export WEBCAM_SPLITTER_PID=$!
+  sleep 2
+  if ! kill -0 "$WEBCAM_SPLITTER_PID" >/dev/null 2>&1; then
+    echo "webcam splitter exited early" >&2
+    sed -n '1,40p' /tmp/webcam_splitter_trace.log >&2 || true
+    sed -n '1,80p' /tmp/webcam_splitter.log >&2 || true
+    exit 1
+  fi
+fi
+
 if [ "${DISABLE_QCAMERA}" = "1" ]; then
   touch /tmp/disable_qcamera
 else
   rm -f /tmp/disable_qcamera
 fi
-
-export_default ROAD_CAM 0
-export_default ROAD_W 640
-export_default ROAD_H 360
-export_default ROAD_FPS 20
-export_default ROAD_FOURCC MJPG
 
 export_default DRIVER_W 640
 export_default DRIVER_H 480

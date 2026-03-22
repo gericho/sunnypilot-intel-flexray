@@ -116,8 +116,6 @@ class Camera:
     self.camera_id = camera_id
     self.device_path = camera_id if isinstance(camera_id, str) and str(camera_id).startswith("/dev/video") else f"/dev/video{camera_id}" if isinstance(camera_id, int) else None
     self.backend = os.getenv("WEBCAM_BACKEND", "opencv").strip().lower()
-    if not self._is_main_camera and self.backend == "ffmpeg":
-      self.backend = "opencv"
     self.cap = None
     self._requested_w = int(w)
     self._requested_h = int(h)
