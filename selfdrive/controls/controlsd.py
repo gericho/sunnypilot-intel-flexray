@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import math
+import gc
+import time
 from numbers import Number
 
 from cereal import car, log
@@ -41,6 +43,8 @@ class Controls(ControlsExt):
     ControlsExt.__init__(self, self.CP, self.params)
 
     self.CI = interfaces[self.CP.carFingerprint](self.CP, self.CP_SP)
+
+    self._pc_gc_last = time.monotonic()
 
     self.sm = messaging.SubMaster(['liveDelay', 'liveParameters', 'liveTorqueParameters', 'modelV2', 'selfdriveState',
                                    'liveCalibration', 'livePose', 'longitudinalPlan', 'carState', 'carOutput',
@@ -234,6 +238,9 @@ class Controls(ControlsExt):
     while True:
       self.update()
       CC, lac_log = self.state_control()
+      if PC and time.monotonic() - self._pc_gc_last >= 1.0:
+        gc.collect()
+        self._pc_gc_last = time.monotonic()
       self.publish(CC, lac_log)
       self.get_params_sp(self.sm)
       self.run_ext(self.sm, self.pm)

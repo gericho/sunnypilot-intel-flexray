@@ -350,6 +350,8 @@ class Camera:
     ffmpeg_bin = os.getenv("WEBCAM_FFMPEG_BIN")
     if not ffmpeg_bin:
       ffmpeg_bin = "/usr/bin/ffmpeg" if os.path.exists("/usr/bin/ffmpeg") else (shutil.which("ffmpeg") or "ffmpeg")
+    input_fourcc = "mjpeg" if self._requested_fourcc == "MJPG" else self._requested_fourcc.lower()
+    use_mjpg_qsv = os.getenv("WEBCAM_MJPG_QSV", "0").strip().lower() in ("1", "true", "yes", "on")
     cmd = [
       ffmpeg_bin,
       "-hide_banner",
@@ -359,10 +361,22 @@ class Camera:
       "nobuffer",
       "-flags",
       "low_delay",
+    ]
+    if use_mjpg_qsv and input_fourcc == "mjpeg":
+      qsv_device = os.getenv("WEBCAM_QSV_DEVICE", os.getenv("VAAPI_DEVICE", "/dev/dri/renderD128"))
+      cmd += [
+        "-init_hw_device",
+        f"qsv=hw:{qsv_device}",
+        "-filter_hw_device",
+        "hw",
+        "-c:v",
+        "mjpeg_qsv",
+      ]
+    cmd += [
       "-f",
       "v4l2",
       "-pixel_format",
-      "mjpeg" if self._requested_fourcc == "MJPG" else self._requested_fourcc.lower(),
+      input_fourcc,
       "-framerate",
       str(self._requested_fps),
       "-video_size",

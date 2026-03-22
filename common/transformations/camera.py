@@ -68,7 +68,7 @@ def _build_pc_webcam_config() -> DeviceCameraConfig:
   if wide_focal_override is not None:
     wide_focal_length = float(wide_focal_override)
   else:
-    wide_hfov_default = os.getenv("WEBCAM_BRIO_FOV", os.getenv("ROAD_HFOV_DEG", "60.0"))
+    wide_hfov_default = os.getenv("ROAD_HFOV_DEG", "58.1")
     wide_hfov_deg = float(os.getenv("WIDE_HFOV_DEG", wide_hfov_default))
     wide_focal_length = (width / 2.0) / math.tan(math.radians(wide_hfov_deg) / 2.0)
 
