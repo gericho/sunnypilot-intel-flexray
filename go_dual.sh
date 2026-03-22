@@ -43,7 +43,7 @@ export_default DISABLE_QCAMERA 1
 export DEV=CL
 export_default HEVC_VAAPI_ASYNC_DEPTH 4
 export_default HEVC_ENCODER vaapi
-export_default QCAMERA_ENCODER cpu
+export_default QCAMERA_ENCODER auto
 export_default VAAPI_DEVICE /dev/dri/renderD128
 export_default ROAD_MAIN_BITRATE_LOW 2500000
 export_default ROAD_MAIN_BITRATE_HIGH 3500000

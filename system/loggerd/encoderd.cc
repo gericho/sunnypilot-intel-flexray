@@ -1,4 +1,6 @@
 #include <cassert>
+#include <cstring>
+#include <unistd.h>
 
 #include "system/loggerd/loggerd.h"
 #include "system/loggerd/encoder/jpeg_encoder.h"
@@ -12,6 +14,12 @@
 #endif
 
 ExitHandler do_exit;
+
+static bool disable_qcamera() {
+  const char *v = getenv("DISABLE_QCAMERA");
+  if (v != nullptr) return atoi(v) == 1;
+  return access("/tmp/disable_qcamera", F_OK) == 0;
+}
 
 struct EncoderdState {
   int max_waiting = 0;
@@ -67,6 +75,9 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
       assert(buf_info.width > 0 && buf_info.height > 0);
 
       for (const auto &encoder_info : cam_info.encoder_infos) {
+        if (disable_qcamera() && strcmp(encoder_info.publish_name, "qRoadEncodeData") == 0) {
+          continue;
+        }
         auto &e = encoders.emplace_back(new Encoder(encoder_info, buf_info.width, buf_info.height));
         e->encoder_open();
       }
@@ -99,7 +110,7 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
       if (do_exit) break;
 
       // do rotation if required
-      const int frames_per_seg = SEGMENT_LENGTH * MAIN_FPS;
+      const int frames_per_seg = SEGMENT_LENGTH * cam_info.fps;
       if (cur_seg >= 0 && extra.frame_id >= ((cur_seg + 1) * frames_per_seg) + s->start_frame_id) {
         for (auto &e : encoders) {
           e->encoder_close();
