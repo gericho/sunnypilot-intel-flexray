@@ -203,3 +203,82 @@ If the target is a strictly stock-like system, the main forcing surface is:
 - [`sunnypilot/modeld_v2/modeld.py`](/home/gericho/sunnypilot/sunnypilot/modeld_v2/modeld.py)
 
 If the target is a working PC rig, most of the structural pieces should stay, but the launcher-level forcing should be reviewed first.
+
+## Dual BRIO Runtime On `dev`
+
+The current `dev` branch includes a dual-camera PC webcam path driven from a single Logitech BRIO.
+
+### Current Layout
+
+Source:
+- physical camera: `/dev/video0`
+
+Derived loopbacks:
+- wide: `/dev/video10`
+- road: `/dev/video11`
+
+Launcher:
+- [`go_dual.sh`](/home/gericho/sunnypilot/go_dual.sh)
+
+Splitter:
+- [`tools/webcam/split_dual.sh`](/home/gericho/sunnypilot/tools/webcam/split_dual.sh)
+
+### Current Runtime Geometry
+
+Road stream:
+- resolution: `512x256`
+- HFOV: `40.0 deg`
+- intrinsics:
+
+```text
+[[703.35,   0.00, 256.00],
+ [  0.00, 703.35, 128.00],
+ [  0.00,   0.00,   1.00]]
+```
+
+Wide stream:
+- resolution: `640x360`
+- HFOV: `58.1 deg`
+- intrinsics:
+
+```text
+[[575.90,   0.00, 320.00],
+ [  0.00, 575.90, 180.00],
+ [  0.00,   0.00,   1.00]]
+```
+
+The geometry is computed in:
+- [`common/transformations/camera.py`](/home/gericho/sunnypilot/common/transformations/camera.py)
+
+### Runtime Decisions
+
+1. Both derived streams are published as `NV12`.
+2. Both road and wide webcam consumers use the `ffmpeg` backend.
+3. The splitter remains software `ffmpeg`, not `QSV` and not `VAAPI`.
+
+Reason:
+- `QSV` reduced splitter CPU a bit, but worsened road/wide sync.
+- `VAAPI` did not provide a useful end-to-end gain and also worsened sync.
+- the software splitter was the most stable option in practice.
+
+### Current Expected Behavior
+
+Road is the primary camera for the runtime:
+- `ROAD_CAM=11`
+
+Wide is the extra camera:
+- `WIDE_CAM=10`
+
+This means `modeld` sees:
+- road as main camera
+- wide as extra camera
+
+### Notes
+
+This is not a physical comma dual-sensor setup.
+It is a pragmatic PC emulation:
+- one BRIO source
+- one full-frame wide branch
+- one center-cropped road branch
+
+It is semantically aligned with a road+wide runtime, but not physically identical to comma hardware.
