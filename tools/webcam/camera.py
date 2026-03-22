@@ -115,6 +115,10 @@ class Camera:
     self.fps = fps
     self.camera_id = camera_id
     self.device_path = camera_id if isinstance(camera_id, str) and str(camera_id).startswith("/dev/video") else f"/dev/video{camera_id}" if isinstance(camera_id, int) else None
+    self._control_device_path = self.device_path
+    if self._is_main_camera and os.getenv("WEBCAM_SPLIT_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on"):
+      split_source = os.getenv("WEBCAM_SPLIT_SOURCE_CAM", "0").strip()
+      self._control_device_path = split_source if split_source.startswith("/dev/video") else f"/dev/video{split_source}"
     self.backend = os.getenv("WEBCAM_BACKEND", "opencv").strip().lower()
     self.cap = None
     self._requested_w = int(w)
@@ -194,22 +198,22 @@ class Camera:
     self._uv_buf = None
 
   def _apply_v4l2_controls(self, w: int, h: int, fps: int, fourcc: str) -> None:
-    if not self.device_path or self._controls_applied:
+    if not self._control_device_path or self._controls_applied:
       return
     cmds = [
-      ["v4l2-ctl", "-d", self.device_path, f"--set-fmt-video=width={w},height={h},pixelformat={fourcc}"],
-      ["v4l2-ctl", "-d", self.device_path, f"--set-parm={fps}"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=zoom_absolute=100"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=power_line_frequency=1"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=auto_exposure=1"],
-      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=exposure_time_absolute={self._manual_exposure_default}"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=backlight_compensation=0"],
-      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=gain={self._manual_gain_default}"],
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=focus_automatic_continuous=0"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-fmt-video=width={w},height={h},pixelformat={fourcc}"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-parm={fps}"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=zoom_absolute=100"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=power_line_frequency=1"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=auto_exposure=1"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=exposure_time_absolute={self._manual_exposure_default}"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=backlight_compensation=0"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=gain={self._manual_gain_default}"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=focus_automatic_continuous=0"],
     ]
     brio_fov = os.getenv("WEBCAM_BRIO_FOV")
     if brio_fov and self._is_main_camera:
-      _set_brio_fov(self.device_path, brio_fov)
+      _set_brio_fov(self._control_device_path, brio_fov)
     for cmd in cmds:
       try:
         subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -220,7 +224,7 @@ class Camera:
       self._set_manual_exposure(self._dynamic_exposure_current)
 
   def _set_manual_exposure(self, exposure_time: int) -> None:
-    if not self.device_path:
+    if not self._control_device_path:
       return
     exposure_time = max(3, int(round(exposure_time)))
     gain = 0
@@ -230,9 +234,9 @@ class Camera:
         frac = min(max((exposure_time - self._dynamic_gain_start_exposure) / span, 0.0), 1.0)
         gain = int(round(frac * self._dynamic_gain_max))
     cmds = [
-      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=auto_exposure=1"],
-      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=exposure_time_absolute={exposure_time}"],
-      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=gain={gain}"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=auto_exposure=1"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=exposure_time_absolute={exposure_time}"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=gain={gain}"],
     ]
     for cmd in cmds:
       try:
