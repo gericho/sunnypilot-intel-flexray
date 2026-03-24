@@ -6,6 +6,7 @@ Small summary of today's changes:
 - fixed the `encoderd` software HEVC path and re-enabled working explicit encoder selection from the launcher (`cpu` or `vaapi`, no fallback for explicit modes)
 - fixed the `modeld_v2` warp input path on PC/CL by replacing the zeroing `Tensor.from_blob(...)` path with explicit tensor copy-in
 - verified that offline warp output is no longer all zeros; the remaining issue is live runtime throughput/dropped model evals, not black warp output
+- disabled `ORT_OPENVINO_FALLBACK_CPU` in the launcher and verified it does not change the live drop pattern; the remaining bottleneck is still runtime throughput, not an OpenVINO CPU fallback
 
 
 ![](docs/assets/Gemini_Generated_Image_en6pmeen6pmeen6p.jpg)
