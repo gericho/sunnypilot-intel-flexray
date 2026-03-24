@@ -1,0 +1,386 @@
+#!/usr/bin/env python3
+import os
+import platform
+import subprocess
+import threading
+import time
+from collections import namedtuple
+
+from cereal import messaging
+from msgq.visionipc import VisionIpcServer, VisionStreamType
+from openpilot.common.realtime import Ratekeeper
+from openpilot.tools.webcam.camera import Camera, _env_flag
+from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
+
+ROAD_CAM = os.getenv("ROAD_CAM", "0")
+WIDE_CAM = os.getenv("WIDE_CAM")
+DRIVER_CAM = os.getenv("DRIVER_CAM")
+MAIN_CAM_AS_WIDE = os.getenv("WEBCAM_MAIN_IS_WIDE", "0").strip().lower() in ("1", "true", "yes", "on")
+WEBCAM_PROFILE = os.getenv("WEBCAM_PROFILE", "0").strip().lower() in ("1", "true", "yes", "on")
+PROFILE_INTERVAL_S = float(os.getenv("WEBCAM_PROFILE_INTERVAL", "5"))
+WEBCAM_DIRECT_SPLIT = _env_flag("WEBCAM_DIRECT_SPLIT", False)
+
+CameraType = namedtuple("CameraType", ["msg_name", "stream_type", "cam_id"])
+
+CAMERAS = []
+if not WEBCAM_DIRECT_SPLIT:
+  CAMERAS = [
+    CameraType("wideRoadCameraState" if MAIN_CAM_AS_WIDE else "roadCameraState",
+               VisionStreamType.VISION_STREAM_WIDE_ROAD if MAIN_CAM_AS_WIDE else VisionStreamType.VISION_STREAM_ROAD,
+               ROAD_CAM)
+  ]
+  if WIDE_CAM:
+    CAMERAS.append(CameraType("wideRoadCameraState", VisionStreamType.VISION_STREAM_WIDE_ROAD, WIDE_CAM))
+if DRIVER_CAM:
+  CAMERAS.append(CameraType("driverCameraState", VisionStreamType.VISION_STREAM_DRIVER, DRIVER_CAM))
+
+
+class DirectExposureController:
+  def __init__(self, device_path: str, label: str):
+    self.device_path = device_path
+    self.label = label
+    self.enabled = _env_flag("WEBCAM_DYNAMIC_EXPOSURE", True)
+    self.gain_enabled = _env_flag("WEBCAM_DYNAMIC_GAIN", True)
+    self.min_exp = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MIN", "8"))
+    self.max_exp = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MAX", "1500"))
+    initial_exposure_env = os.getenv("WEBCAM_DYNAMIC_EXPOSURE_INITIAL")
+    self.cur_exp = float(initial_exposure_env) if initial_exposure_env is not None else (self.min_exp + self.max_exp) / 2.0
+    self.interval_s = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_INTERVAL", "0.1"))
+    self.sample_every = max(1, int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_SAMPLE_EVERY", "2")))
+    self.target_low = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_TARGET_LOW", "70"))
+    self.target_high = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_TARGET_HIGH", "135"))
+    self.target_mid = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_TARGET_MID", "96"))
+    self.clip_high = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_CLIP_HIGH", "0.02"))
+    self.clip_low = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_CLIP_LOW", "0.0005"))
+    self.smoothing = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_SMOOTHING", "0.6"))
+    self.max_delta = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MAX_DELTA", "250.0"))
+    self.gain_max = int(os.getenv("WEBCAM_DYNAMIC_GAIN_MAX", "255"))
+    self.gain_start_exposure = float(os.getenv("WEBCAM_DYNAMIC_GAIN_START_EXPOSURE", "120"))
+    self.gain_full_exposure = float(os.getenv("WEBCAM_DYNAMIC_GAIN_FULL_EXPOSURE", "1500"))
+    self.frame_count = 0
+    self.last_change = 0.0
+    self._pending_lock = threading.Lock()
+    self._pending_exposure = None
+    self._worker_stop = False
+    self._worker = None
+    if self.enabled:
+      self._worker = threading.Thread(target=self._worker_loop, name=f"direct-exp-{self.label}", daemon=True)
+      self._worker.start()
+      print(f"[webcamerad:{self.label}] dynamic_exposure=active range=[{self.min_exp},{self.max_exp}] initial={self.cur_exp:.1f}")
+
+  def _worker_loop(self) -> None:
+    while not self._worker_stop:
+      exposure_time = None
+      with self._pending_lock:
+        if self._pending_exposure is not None:
+          exposure_time = self._pending_exposure
+          self._pending_exposure = None
+      if exposure_time is None:
+        time.sleep(0.01)
+        continue
+      self._set_manual_exposure(exposure_time)
+
+  def _set_manual_exposure(self, exposure_time: float) -> None:
+    exposure_time = max(3, int(round(exposure_time)))
+    gain = 0
+    if self.enabled and self.gain_enabled and exposure_time > self.gain_start_exposure:
+      span = max(1.0, self.gain_full_exposure - self.gain_start_exposure)
+      frac = min(max((exposure_time - self.gain_start_exposure) / span, 0.0), 1.0)
+      gain = int(round(frac * self.gain_max))
+    cmds = [
+      ["v4l2-ctl", "-d", self.device_path, "--set-ctrl=auto_exposure=1"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=exposure_time_absolute={exposure_time}"],
+      ["v4l2-ctl", "-d", self.device_path, f"--set-ctrl=gain={gain}"],
+    ]
+    for cmd in cmds:
+      try:
+        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+      except Exception:
+        pass
+
+  def maybe_update_nv12(self, payload: bytes, w: int, h: int) -> None:
+    if not self.enabled:
+      return
+    import cv2 as cv
+    import numpy as np
+    self.frame_count += 1
+    if (self.frame_count % self.sample_every) != 0:
+      return
+    y_plane = np.frombuffer(payload, dtype=np.uint8, count=w * h).reshape((h, w))
+    gray = cv.resize(y_plane, (160, 90), interpolation=cv.INTER_AREA)
+    mean_luma = float(gray.mean())
+    high_clip = float((gray >= 245).mean())
+    low_clip = float((gray <= 10).mean())
+    now = time.monotonic()
+    if (now - self.last_change) < self.interval_s:
+      return
+    if self.target_low <= mean_luma <= self.target_high and high_clip <= self.clip_high:
+      return
+    ratio = self.target_mid / max(mean_luma, 1.0)
+    if high_clip > self.clip_high:
+      ratio *= 0.75
+    elif low_clip > 0.08 and mean_luma < self.target_low:
+      ratio *= 1.15
+    desired = self.cur_exp * ratio
+    smoothed = (1.0 - self.smoothing) * self.cur_exp + self.smoothing * desired
+    lower = self.cur_exp - self.max_delta
+    upper = self.cur_exp + self.max_delta
+    new_exposure = min(max(smoothed, lower), upper)
+    new_exposure = min(max(new_exposure, self.min_exp), self.max_exp)
+    if abs(new_exposure - self.cur_exp) < 0.75:
+      return
+    self.cur_exp = float(new_exposure)
+    with self._pending_lock:
+      self._pending_exposure = new_exposure
+    self.last_change = now
+    print(f"[webcamerad:{self.label}] dynamic_exposure_value={self.cur_exp:.1f} mean={mean_luma:.1f} high_clip={high_clip:.3f} low_clip={low_clip:.3f}")
+
+
+class Camerad:
+  def __init__(self):
+    self.direct_split = WEBCAM_DIRECT_SPLIT and bool(WIDE_CAM) and not MAIN_CAM_AS_WIDE
+    self.vipc_server = VisionIpcServer("camerad")
+    self._shared_streams = {VisionStreamType.VISION_STREAM_ROAD, VisionStreamType.VISION_STREAM_WIDE_ROAD}
+    self._paired_lock = threading.Lock()
+    self._paired_cv = threading.Condition(self._paired_lock)
+    self._paired_latest = {}
+    self._paired_seq = {s: -1 for s in self._shared_streams}
+    self._paired_stop = False
+    self._paired_frame_id = 0
+    self._direct_proc = None
+    self._direct_pipe_fds = {}
+
+    self.cameras = []
+    self.cameras_by_stream = {}
+    self.stream_meta = {}
+
+    if self.direct_split:
+      road_w = int(float(os.getenv("ROAD_W", "512")))
+      road_h = int(float(os.getenv("ROAD_H", "256")))
+      wide_w = int(float(os.getenv("WIDE_W", "640")))
+      wide_h = int(float(os.getenv("WIDE_H", "360")))
+      road_stride, road_y_height, road_uv_height, road_size = get_nv12_info(road_w, road_h)
+      wide_stride, wide_y_height, wide_uv_height, wide_size = get_nv12_info(wide_w, wide_h)
+      self.stream_meta[VisionStreamType.VISION_STREAM_ROAD] = {"msg_name": "roadCameraState", "width": road_w, "height": road_h, "stride": road_stride, "y_height": road_y_height, "uv_height": road_uv_height, "uv_offset": road_stride * road_y_height, "size": road_size}
+      self.stream_meta[VisionStreamType.VISION_STREAM_WIDE_ROAD] = {"msg_name": "wideRoadCameraState", "width": wide_w, "height": wide_h, "stride": wide_stride, "y_height": wide_y_height, "uv_height": wide_uv_height, "uv_offset": wide_stride * wide_y_height, "size": wide_size}
+      self.vipc_server.create_buffers_with_sizes(VisionStreamType.VISION_STREAM_ROAD, 20, road_w, road_h, road_size, road_stride, road_stride * road_y_height)
+      self.vipc_server.create_buffers_with_sizes(VisionStreamType.VISION_STREAM_WIDE_ROAD, 20, wide_w, wide_h, wide_size, wide_stride, wide_stride * wide_y_height)
+    else:
+      for c in CAMERAS:
+        cam_device = f"/dev/video{c.cam_id}" if platform.system() != "Darwin" else c.cam_id
+        cam = Camera(c.msg_name, c.stream_type, cam_device)
+        self.cameras.append(cam)
+        self.cameras_by_stream[c.stream_type] = cam
+        self.vipc_server.create_buffers(c.stream_type, 20, cam.W, cam.H)
+
+    pm_topics = [meta["msg_name"] for meta in self.stream_meta.values()] + [c.msg_name for c in CAMERAS if c.msg_name not in [m["msg_name"] for m in self.stream_meta.values()]]
+    self.pm = messaging.PubMaster(pm_topics)
+    self.vipc_server.start_listener()
+
+  def _start_direct_splitter(self):
+    src_cam = os.getenv("WEBCAM_SPLIT_SOURCE_CAM", "0").strip()
+    src_dev = src_cam if src_cam.startswith("/dev/video") else f"/dev/video{src_cam}"
+    fps = str(int(float(os.getenv("WIDE_FPS", os.getenv("ROAD_FPS", "20")))))
+    ffmpeg_bin = os.getenv("FFMPEG_BIN", os.getenv("WEBCAM_FFMPEG_BIN", "/usr/bin/ffmpeg"))
+    qsv_device = os.getenv("WEBCAM_QSV_DEVICE", os.getenv("VAAPI_DEVICE", "/dev/dri/renderD128"))
+
+    wide_r, wide_w = os.pipe()
+    road_r, road_w = os.pipe()
+    for fd in (wide_w, road_w):
+      os.set_inheritable(fd, True)
+    self._direct_pipe_fds = {
+      VisionStreamType.VISION_STREAM_WIDE_ROAD: wide_r,
+      VisionStreamType.VISION_STREAM_ROAD: road_r,
+    }
+
+    cmd = [
+      ffmpeg_bin,
+      "-hide_banner", "-loglevel", "error",
+      "-fflags", "nobuffer",
+      "-flags", "low_delay",
+      "-init_hw_device", f"qsv=hw:{qsv_device}",
+      "-filter_hw_device", "hw",
+      "-c:v", "mjpeg_qsv",
+      "-f", "v4l2",
+      "-pixel_format", "mjpeg",
+      "-framerate", fps,
+      "-video_size", "1280x720",
+      "-i", src_dev,
+      "-map", "0:v",
+      "-vf", "vpp_qsv=transpose=reversal:w=640:h=360,hwdownload,format=nv12",
+      "-pix_fmt", "nv12",
+      "-f", "rawvideo",
+      f"pipe:{wide_w}",
+      "-map", "0:v",
+      "-vf", "vpp_qsv=transpose=reversal:cw=536:ch=302:cx=372:cy=209:w=640:h=360,hwdownload,format=nv12",
+      "-pix_fmt", "nv12",
+      "-f", "rawvideo",
+      f"pipe:{road_w}",
+    ]
+    self._direct_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, pass_fds=(wide_w, road_w))
+    os.close(wide_w)
+    os.close(road_w)
+
+  def _pack_nv12_for_vipc(self, yuv_type, payload):
+    meta = self.stream_meta.get(yuv_type)
+    if not meta or "stride" not in meta:
+      return payload
+    w = meta["width"]
+    h = meta["height"]
+    stride = meta["stride"]
+    y_height = meta["y_height"]
+    uv_height = meta["uv_height"]
+    uv_offset = meta["uv_offset"]
+    size = meta["size"]
+    expected_tight = w * h * 3 // 2
+    if len(payload) == size:
+      return payload
+    if len(payload) != expected_tight:
+      raise ValueError(f"unexpected NV12 payload size for {yuv_type}: {len(payload)} != {expected_tight} or {size}")
+    out = bytearray(size)
+    for row in range(h):
+      src = row * w
+      dst = row * stride
+      out[dst:dst+w] = payload[src:src+w]
+    src_uv_base = w * h
+    for row in range(h // 2):
+      src = src_uv_base + row * w
+      dst = uv_offset + row * stride
+      out[dst:dst+w] = payload[src:src+w]
+    return bytes(out)
+
+  def _send_yuv(self, yuv, frame_id, ts_ns, pub_type, yuv_type):
+    packed = self._pack_nv12_for_vipc(yuv_type, yuv)
+    self.vipc_server.send(yuv_type, packed, frame_id, ts_ns, ts_ns)
+    dat = messaging.new_message(pub_type, valid=True)
+    msg = {
+      "frameId": frame_id,
+      "frameIdSensor": frame_id,
+      "encodeId": frame_id,
+      "timestampSof": ts_ns,
+      "timestampEof": ts_ns,
+      "sensor": "unknown",
+      "transform": [1.0, 0.0, 0.0,
+                      0.0, 1.0, 0.0,
+                      0.0, 0.0, 1.0],
+    }
+    setattr(dat, pub_type, msg)
+    self.pm.send(pub_type, dat)
+
+  def _log_profile(self, cam, stage, send_ms, frame_count, sums, interval_start):
+    if not WEBCAM_PROFILE or stage is None:
+      return frame_count, interval_start
+    frame_count += 1
+    sums["read_ms"] += stage["read_ms"]
+    sums["flip_ms"] += stage["flip_ms"]
+    sums["convert_ms"] += stage["convert_ms"]
+    sums["payload_ms"] += stage["payload_ms"]
+    sums["send_ms"] += send_ms
+    now = time.monotonic()
+    elapsed = now - interval_start
+    if elapsed >= PROFILE_INTERVAL_S:
+      fps = frame_count / elapsed if elapsed > 0 else 0.0
+      print(" ".join((
+        f"[webcamerad:{cam.cam_type_state}]",
+        f"fps={fps:.2f}",
+        f"read_ms={sums['read_ms']/frame_count:.3f}",
+        f"flip_ms={sums['flip_ms']/frame_count:.3f}",
+        f"convert_ms={sums['convert_ms']/frame_count:.3f}",
+        f"payload_ms={sums['payload_ms']/frame_count:.3f}",
+        f"send_ms={sums['send_ms']/frame_count:.3f}",
+        f"capture_backend={cam.backend}",
+        f"nv12_backend={cam.nv12_backend}",
+        f"flip={cam.flip_mode}",
+      )))
+      interval_start = now
+      frame_count = 0
+      for k in sums:
+        sums[k] = 0.0
+    return frame_count, interval_start
+
+  def camera_runner(self, cam):
+    rk = Ratekeeper(max(1.0, float(cam.fps)), None)
+    interval_start = time.monotonic()
+    frame_count = 0
+    sums = {"read_ms": 0.0, "flip_ms": 0.0, "convert_ms": 0.0, "payload_ms": 0.0, "send_ms": 0.0}
+    for yuv, stage in cam.read_frames():
+      t_send = time.perf_counter() if WEBCAM_PROFILE else 0.0
+      self._send_yuv(yuv, cam.cur_frame_id, time.monotonic_ns(), cam.cam_type_state, cam.stream_type)
+      send_ms = (time.perf_counter() - t_send) * 1000.0 if WEBCAM_PROFILE else 0.0
+      cam.cur_frame_id += 1
+      frame_count, interval_start = self._log_profile(cam, stage, send_ms, frame_count, sums, interval_start)
+      rk.keep_time()
+
+  def direct_reader_runner(self, stream_type):
+    meta = self.stream_meta[stream_type]
+    fd = self._direct_pipe_fds[stream_type]
+    frame_size = meta["width"] * meta["height"] * 3 // 2
+    exposure = None
+    if stream_type == VisionStreamType.VISION_STREAM_ROAD:
+      src_cam = os.getenv("WEBCAM_SPLIT_SOURCE_CAM", "0").strip()
+      src_dev = src_cam if src_cam.startswith("/dev/video") else f"/dev/video{src_cam}"
+      exposure = DirectExposureController(src_dev, meta["msg_name"])
+    print(f"[webcamerad:{meta['msg_name']}] raw_nv12=active")
+    produced_seq = 0
+    while True:
+      chunks = bytearray()
+      while len(chunks) < frame_size:
+        part = os.read(fd, frame_size - len(chunks))
+        if not part:
+          with self._paired_cv:
+            self._paired_stop = True
+            self._paired_cv.notify_all()
+          return
+        chunks.extend(part)
+      payload = bytes(chunks)
+      if exposure is not None:
+        exposure.maybe_update_nv12(payload, meta["width"], meta["height"])
+      with self._paired_cv:
+        self._paired_latest[stream_type] = payload
+        self._paired_seq[stream_type] = produced_seq
+        produced_seq += 1
+        self._paired_cv.notify_all()
+
+  def paired_runner(self):
+    last_sent = {s: -1 for s in self._shared_streams}
+    while True:
+      with self._paired_cv:
+        self._paired_cv.wait_for(lambda: self._paired_stop or all(self._paired_seq[s] > last_sent[s] for s in self._shared_streams))
+        if self._paired_stop:
+          return
+        road_yuv = self._paired_latest[VisionStreamType.VISION_STREAM_ROAD]
+        wide_yuv = self._paired_latest[VisionStreamType.VISION_STREAM_WIDE_ROAD]
+        last_sent[VisionStreamType.VISION_STREAM_ROAD] = self._paired_seq[VisionStreamType.VISION_STREAM_ROAD]
+        last_sent[VisionStreamType.VISION_STREAM_WIDE_ROAD] = self._paired_seq[VisionStreamType.VISION_STREAM_WIDE_ROAD]
+        frame_id = self._paired_frame_id
+        self._paired_frame_id += 1
+      ts_ns = time.monotonic_ns()
+      self._send_yuv(road_yuv, frame_id, ts_ns, self.stream_meta[VisionStreamType.VISION_STREAM_ROAD]["msg_name"], VisionStreamType.VISION_STREAM_ROAD)
+      self._send_yuv(wide_yuv, frame_id, ts_ns, self.stream_meta[VisionStreamType.VISION_STREAM_WIDE_ROAD]["msg_name"], VisionStreamType.VISION_STREAM_WIDE_ROAD)
+
+  def run(self):
+    threads = []
+    if self.direct_split:
+      self._start_direct_splitter()
+      pair_thread = threading.Thread(target=self.paired_runner)
+      pair_thread.start()
+      threads.append(pair_thread)
+      for stream_type in (VisionStreamType.VISION_STREAM_WIDE_ROAD, VisionStreamType.VISION_STREAM_ROAD):
+        t = threading.Thread(target=self.direct_reader_runner, args=(stream_type,))
+        t.start()
+        threads.append(t)
+    else:
+      for cam in self.cameras:
+        cam_thread = threading.Thread(target=self.camera_runner, args=(cam,))
+        cam_thread.start()
+        threads.append(cam_thread)
+    for t in threads:
+      t.join()
+
+
+def main():
+  Camerad().run()
+
+
+if __name__ == "__main__":
+  main()

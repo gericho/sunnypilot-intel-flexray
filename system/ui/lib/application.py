@@ -270,6 +270,16 @@ class GuiApplication(GuiApplicationExt):
 
   def init_window(self, title: str, fps: int = _DEFAULT_FPS):
     with self._startup_profile_context():
+      def _parse_window_pos() -> tuple[int, int] | None:
+        raw = os.getenv("WINDOW_POS", "") or os.getenv("SDL_VIDEO_WINDOW_POS", "")
+        if not raw:
+          return None
+        try:
+          x_str, y_str = raw.split(",", 1)
+          return int(x_str.strip()), int(y_str.strip())
+        except Exception:
+          return None
+
       def _close(sig, frame):
         self.close()
         sys.exit(0)
@@ -282,6 +292,8 @@ class GuiApplication(GuiApplicationExt):
       rl.set_config_flags(flags)
 
       rl.init_window(self._scaled_width, self._scaled_height, title)
+      if (pos := _parse_window_pos()) is not None:
+        rl.set_window_position(*pos)
 
       needs_render_texture = self._scale != 1.0 or BURN_IN_MODE or RECORD
       if self._scale != 1.0:
@@ -321,10 +333,14 @@ class GuiApplication(GuiApplicationExt):
         self._ffmpeg_thread = threading.Thread(target=self._ffmpeg_writer_thread, daemon=True)
         self._ffmpeg_thread.start()
 
-      # OFFSCREEN disables FPS limiting for fast offline rendering (e.g. clips)
-      rl.set_target_fps(0 if OFFSCREEN else fps)
+      target_fps = fps
+      if not OFFSCREEN:
+        target_fps = int(os.getenv("UI_TARGET_FPS", str(fps)))
 
-      self._target_fps = fps
+      # OFFSCREEN disables FPS limiting for fast offline rendering (e.g. clips)
+      rl.set_target_fps(0 if OFFSCREEN else target_fps)
+
+      self._target_fps = target_fps
       self._set_styles()
       self._load_fonts()
       self._patch_text_functions()

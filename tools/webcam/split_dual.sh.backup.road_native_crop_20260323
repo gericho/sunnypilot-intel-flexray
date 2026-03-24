@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+src_dev="${1:?missing source device}"
+wide_dev="${2:?missing wide device}"
+road_dev="${3:?missing road device}"
+wide_fps="${4:?missing wide fps}"
+ffmpeg_bin="${FFMPEG_BIN:-/usr/bin/ffmpeg}"
+qsv_device="${WEBCAM_QSV_DEVICE:-${VAAPI_DEVICE:-/dev/dri/renderD128}}"
+
+exec "${ffmpeg_bin}" -hide_banner -loglevel error \
+  -init_hw_device qsv=hw:"${qsv_device}" \
+  -filter_hw_device hw \
+  -c:v mjpeg_qsv \
+  -f v4l2 -pixel_format mjpeg -framerate "${wide_fps}" -video_size 1920x1080 -i "${src_dev}" \
+  -map 0:v -vf 'vpp_qsv=transpose=reversal:w=640:h=360' -c:v mjpeg_qsv -f v4l2 "${wide_dev}" \
+  -map 0:v -vf 'vpp_qsv=transpose=reversal:cw=802:ch=451:cx=559:cy=314:w=512:h=256' -c:v mjpeg_qsv -f v4l2 "${road_dev}"

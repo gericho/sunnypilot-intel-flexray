@@ -17,7 +17,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.common.params import Params
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import config_realtime_process, DT_MDL
-from openpilot.common.transformations.camera import DEVICE_CAMERAS
+from openpilot.common.transformations.camera import get_device_camera_config
 from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.system import sentry
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
@@ -291,7 +291,7 @@ def main(demo=False):
     lat_delay = model.lat_delay + model.LAT_SMOOTH_SECONDS
     if sm.updated["liveCalibration"] and sm.seen['roadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["liveCalibration"].rpyCalib, dtype=np.float32)
-      dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))]
+      dc = get_device_camera_config(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))
       model_transform_main = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics if main_wide_camera else dc.fcam.intrinsics, False).astype(np.float32)
       model_transform_extra = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics, True).astype(np.float32)
       model_transform_main, model_transform_extra = camera_offset_helper.update(model_transform_main, model_transform_extra, sm, main_wide_camera)
@@ -313,12 +313,20 @@ def main(demo=False):
     run_count = run_count + 1
 
     frame_drop_ratio = frames_dropped / (1 + frames_dropped)
-    prepare_only = vipc_dropped_frames > 0
+    prepare_only_threshold = int(os.getenv("MODEL_PREPARE_ONLY_THRESHOLD", "0"))
+    prepare_only = vipc_dropped_frames > prepare_only_threshold
     if prepare_only:
       cloudlog.error(f"skipping model eval. Dropped {vipc_dropped_frames} frames")
 
     bufs = {name: buf_extra if 'big' in name else buf_main for name in model.model_runner.vision_input_names}
     transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in model.model_runner.vision_input_names}
+    if os.getenv("MODEL_RAW_BUF_DIAG", "0") in ("1", "true", "yes", "on") and (meta_main.frame_id % 100 == 0):
+      try:
+        road_np = np.asarray(buf_main.data)
+        extra_np = np.asarray(buf_extra.data)
+        cloudlog.warning(f"raw_buf_diag frame={meta_main.frame_id} road=[sum={int(road_np.sum())},min={int(road_np.min())},max={int(road_np.max())},len={len(road_np)}] extra=[sum={int(extra_np.sum())},min={int(extra_np.min())},max={int(extra_np.max())},len={len(extra_np)}]")
+      except Exception:
+        cloudlog.exception('raw_buf_diag_failed')
     inputs:dict[str, np.ndarray] = {
       model.desire_key: vec_desire,
       'traffic_convention': traffic_convention,
@@ -327,6 +335,17 @@ def main(demo=False):
     if "lateral_control_params" in model.numpy_inputs.keys():
       inputs['lateral_control_params'] = np.array([v_ego, lat_delay], dtype=np.float32)
 
+    warp_diag_enabled = os.getenv("MODEL_WARP_DIAG", "0") in ("1", "true", "yes", "on")
+    if warp_diag_enabled and (meta_main.frame_id % 100 == 0):
+      try:
+        imgs_tensors = model.warp.process(bufs, transforms)
+        img_np = imgs_tensors.get('img').numpy() if 'img' in imgs_tensors else None
+        big_np = imgs_tensors.get('big_img').numpy() if 'big_img' in imgs_tensors else None
+        img_stats = None if img_np is None else [int(img_np.sum()), int(img_np.min()), int(img_np.max())]
+        big_stats = None if big_np is None else [int(big_np.sum()), int(big_np.min()), int(big_np.max())]
+        cloudlog.warning(f"warp_diag frame={meta_main.frame_id} img_stats={img_stats} big_img_stats={big_stats}")
+      except Exception:
+        cloudlog.exception('warp_diag_failed')
     mt1 = time.perf_counter()
     model_output = model.run(bufs, transforms, inputs, prepare_only)
     mt2 = time.perf_counter()
@@ -356,6 +375,11 @@ def main(demo=False):
       drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
 
       fill_pose_msg(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, live_calib_seen)
+      if os.getenv("MODEL_POSE_DIAG", "0") in ("1", "true", "yes", "on") and (meta_main.frame_id % 100 == 0):
+        try:
+          cloudlog.warning(f"pose_diag frame={meta_main.frame_id} pose={np.round(model_output['pose'][0], 6).tolist()} pose_stds={np.round(model_output['pose_stds'][0], 6).tolist()} road_transform={np.round(model_output['road_transform'][0], 6).tolist()} wide_from_device_euler={np.round(model_output['wide_from_device_euler'][0], 6).tolist()}")
+        except Exception:
+          cloudlog.exception('pose_diag_failed')
       pm.send('modelV2', modelv2_send)
       pm.send('drivingModelData', drivingdata_send)
       pm.send('cameraOdometry', posenet_send)

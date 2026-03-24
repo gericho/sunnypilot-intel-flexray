@@ -10,10 +10,13 @@
 
 #define __STDC_CONSTANT_MACROS
 
-#include "third_party/libyuv/include/libyuv.h"
+#include "libyuv.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
 #include <libavformat/avformat.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
@@ -24,6 +27,41 @@ extern "C" {
 #include "common/util.h"
 
 const int env_debug_encoder = (getenv("DEBUG_ENCODER") != NULL) ? atoi(getenv("DEBUG_ENCODER")) : 0;
+
+namespace {
+
+AVCodecContext *make_software_codec_ctx(const AVCodec *codec, const EncoderInfo &encoder_info,
+                                        int width, int height, int bitrate, int gop_size,
+                                        bool qcamera_h264) {
+  if (codec == nullptr) return nullptr;
+
+  AVCodecContext *ctx = avcodec_alloc_context3(codec);
+  if (ctx == nullptr) return nullptr;
+
+  ctx->width = width;
+  ctx->height = height;
+  ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+  ctx->time_base = (AVRational){1, encoder_info.fps};
+  ctx->framerate = (AVRational){encoder_info.fps, 1};
+  ctx->bit_rate = bitrate;
+  ctx->gop_size = gop_size;
+  ctx->max_b_frames = 0;
+
+  av_buffer_unref(&ctx->hw_device_ctx);
+  av_buffer_unref(&ctx->hw_frames_ctx);
+
+  if (!qcamera_h264 && ctx->priv_data != nullptr) {
+    av_opt_set(ctx->priv_data, "preset", "ultrafast", 0);
+    av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
+    if (codec->name != nullptr && strcmp(codec->name, "libx265") == 0) {
+      av_opt_set(ctx->priv_data, "x265-params", "bframes=0:repeat-headers=1", 0);
+    }
+  }
+
+  return ctx;
+}
+
+}  // namespace
 
 FfmpegEncoder::FfmpegEncoder(const EncoderInfo &encoder_info, int in_width, int in_height)
     : VideoEncoder(encoder_info, in_width, in_height) {
@@ -49,32 +87,109 @@ FfmpegEncoder::~FfmpegEncoder() {
   av_frame_free(&sw_frame);
   av_frame_free(&hw_frame);
   av_buffer_unref(&hw_frames_ctx);
+  avfilter_graph_free(&filter_graph);
   av_buffer_unref(&hw_device_ctx);
 }
 
 bool FfmpegEncoder::init_vaapi(const char *device_path) {
+  av_buffer_unref(&hw_frames_ctx);
+  avfilter_graph_free(&filter_graph);
+  buffersrc_ctx = NULL;
+  buffersink_ctx = NULL;
+  av_buffer_unref(&hw_device_ctx);
   int err = av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_VAAPI, device_path, nullptr, 0);
   if (err < 0) {
     LOGW("av_hwdevice_ctx_create failed for %s (%d)", device_path, err);
     return false;
   }
+  return true;
+}
 
-  hw_frames_ctx = av_hwframe_ctx_alloc(hw_device_ctx);
-  if (hw_frames_ctx == nullptr) {
-    LOGW("av_hwframe_ctx_alloc failed");
+bool FfmpegEncoder::init_vaapi_filters() {
+  char args[128];
+  int err = 0;
+
+  filter_graph = avfilter_graph_alloc();
+  if (filter_graph == nullptr) {
+    LOGW("avfilter_graph_alloc failed");
+    return false;
+  }
+  const AVFilter *buffersrc = avfilter_get_by_name("buffer");
+  const AVFilter *format = avfilter_get_by_name("format");
+  const AVFilter *hwupload = avfilter_get_by_name("hwupload");
+  const AVFilter *buffersink = avfilter_get_by_name("buffersink");
+  if (buffersrc == nullptr || format == nullptr || hwupload == nullptr || buffersink == nullptr) {
+    LOGW("required avfilter nodes missing for VAAPI");
     return false;
   }
 
-  auto *frames_ctx = reinterpret_cast<AVHWFramesContext *>(hw_frames_ctx->data);
-  frames_ctx->format = AV_PIX_FMT_VAAPI;
-  frames_ctx->sw_format = AV_PIX_FMT_NV12;
-  frames_ctx->width = out_width;
-  frames_ctx->height = out_height;
-  frames_ctx->initial_pool_size = 8;
-
-  err = av_hwframe_ctx_init(hw_frames_ctx);
+  snprintf(args, sizeof(args),
+           "video_size=%dx%d:pix_fmt=%d:time_base=1/%d:pixel_aspect=1/1",
+           out_width, out_height, AV_PIX_FMT_NV12, encoder_info.fps);
+  err = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "src", args, nullptr, filter_graph);
   if (err < 0) {
-    LOGW("av_hwframe_ctx_init failed (%d)", err);
+    LOGW("avfilter_graph_create_filter(buffer) failed (%d)", err);
+    return false;
+  }
+
+  AVFilterContext *format_ctx = nullptr;
+  err = avfilter_graph_create_filter(&format_ctx, format, "fmt", "pix_fmts=nv12", nullptr, filter_graph);
+  if (err < 0) {
+    LOGW("avfilter_graph_create_filter(format) failed (%d)", err);
+    return false;
+  }
+
+  AVFilterContext *hwupload_ctx = nullptr;
+  err = avfilter_graph_create_filter(&hwupload_ctx, hwupload, "upload", nullptr, nullptr, filter_graph);
+  if (err < 0) {
+    LOGW("avfilter_graph_create_filter(hwupload) failed (%d)", err);
+    return false;
+  }
+  hwupload_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+
+  err = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "sink", nullptr, nullptr, filter_graph);
+  if (err < 0) {
+    LOGW("avfilter_graph_create_filter(buffersink) failed (%d)", err);
+    return false;
+  }
+
+  const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_VAAPI, AV_PIX_FMT_NONE };
+  err = av_opt_set_int_list(buffersink_ctx, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+  if (err < 0) {
+    LOGW("av_opt_set_int_list(buffersink pix_fmts) failed (%d)", err);
+    return false;
+  }
+
+  err = avfilter_link(buffersrc_ctx, 0, format_ctx, 0);
+  if (err < 0) {
+    LOGW("avfilter_link(buffer->format) failed (%d)", err);
+    return false;
+  }
+  err = avfilter_link(format_ctx, 0, hwupload_ctx, 0);
+  if (err < 0) {
+    LOGW("avfilter_link(format->hwupload) failed (%d)", err);
+    return false;
+  }
+  err = avfilter_link(hwupload_ctx, 0, buffersink_ctx, 0);
+  if (err < 0) {
+    LOGW("avfilter_link(hwupload->buffersink) failed (%d)", err);
+    return false;
+  }
+
+  err = avfilter_graph_config(filter_graph, nullptr);
+  if (err < 0) {
+    LOGW("avfilter_graph_config failed (%d)", err);
+    return false;
+  }
+  av_buffer_unref(&hw_frames_ctx);
+  hw_frames_ctx = av_buffersink_get_hw_frames_ctx(buffersink_ctx);
+  if (hw_frames_ctx == nullptr) {
+    LOGW("av_buffersink_get_hw_frames_ctx returned null");
+    return false;
+  }
+  hw_frames_ctx = av_buffer_ref(hw_frames_ctx);
+  if (hw_frames_ctx == nullptr) {
+    LOGW("av_buffer_ref(hw_frames_ctx) failed");
     return false;
   }
   return true;
@@ -112,12 +227,22 @@ void FfmpegEncoder::encoder_open() {
       codec = avcodec_find_encoder(AV_CODEC_ID_H264);
       use_vaapi = false;
       use_qsv = false;
-      LOGW("fallback to software H264 encoder for qcamera");
+      LOGW("fallback to software H264 encoder for qcamera codec=%s", codec ? codec->name : "<null>");
     }
   } else {
     const char *hevc_impl = getenv("HEVC_ENCODER");
+    const bool hevc_auto = is_auto(hevc_impl);
+    const bool hevc_allow_fallback = hevc_auto;
+    const bool use_explicit_cpu = is_set(hevc_impl, "cpu");
     const bool try_vaapi = (is_auto(hevc_impl) && has_dri_device) || is_set(hevc_impl, "vaapi");
     const bool try_qsv = (is_auto(hevc_impl) && has_dri_device) || is_set(hevc_impl, "qsv");
+    LOGW("hevc env impl=%s auto=%d try_vaapi=%d try_qsv=%d has_dri=%d",
+         hevc_impl ? hevc_impl : "<null>", hevc_auto, try_vaapi, try_qsv, has_dri_device);
+    if (use_explicit_cpu) {
+      codec = avcodec_find_encoder(AV_CODEC_ID_HEVC);
+      use_vaapi = false;
+      use_qsv = false;
+    }
     if (try_vaapi) {
       codec = avcodec_find_encoder_by_name("hevc_vaapi");
       if (codec != nullptr) {
@@ -128,11 +253,11 @@ void FfmpegEncoder::encoder_open() {
       codec = avcodec_find_encoder_by_name("hevc_qsv");
       if (codec != nullptr) use_qsv = true;
     }
-    if (codec == nullptr || (!use_vaapi && !use_qsv)) {
+    if (hevc_allow_fallback && (codec == nullptr || (!use_vaapi && !use_qsv))) {
       codec = avcodec_find_encoder(AV_CODEC_ID_HEVC);
       use_vaapi = false;
       use_qsv = false;
-      LOGW("fallback to software HEVC encoder");
+      LOGW("fallback to software HEVC encoder codec=%s", codec ? codec->name : "<null>");
     }
   }
   if (codec == nullptr) {
@@ -140,98 +265,86 @@ void FfmpegEncoder::encoder_open() {
     return;
   }
 
-  this->codec_ctx = avcodec_alloc_context3(codec);
-  if (this->codec_ctx == nullptr) {
-    LOGE("avcodec_alloc_context3 failed for %s", encoder_info.publish_name);
-    return;
+  if (use_vaapi || use_qsv) {
+    this->codec_ctx = avcodec_alloc_context3(codec);
+    if (this->codec_ctx == nullptr) {
+      LOGE("avcodec_alloc_context3 failed for %s", encoder_info.publish_name);
+      return;
+    }
+    this->codec_ctx->width = frame->width;
+    this->codec_ctx->height = frame->height;
+    this->codec_ctx->pix_fmt = use_vaapi ? AV_PIX_FMT_VAAPI : AV_PIX_FMT_NV12;
+    if (use_vaapi) this->codec_ctx->sw_pix_fmt = AV_PIX_FMT_NV12;
+    this->codec_ctx->time_base = (AVRational){ 1, encoder_info.fps };
+    this->codec_ctx->framerate = (AVRational){ encoder_info.fps, 1 };
+    this->codec_ctx->bit_rate = settings.bitrate;
+    this->codec_ctx->gop_size = settings.gop_size;
+    this->codec_ctx->max_b_frames = 0;
+  } else {
+    this->codec_ctx = make_software_codec_ctx(codec, encoder_info, frame->width, frame->height,
+                                              settings.bitrate, settings.gop_size, qcamera_h264);
+    if (this->codec_ctx == nullptr) {
+      LOGE("software codec ctx init failed for %s", encoder_info.publish_name);
+      return;
+    }
   }
-  this->codec_ctx->width = frame->width;
-  this->codec_ctx->height = frame->height;
-  this->codec_ctx->pix_fmt = use_vaapi ? AV_PIX_FMT_VAAPI : (use_qsv ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P);
-  this->codec_ctx->time_base = (AVRational){ 1, encoder_info.fps };
-  this->codec_ctx->framerate = (AVRational){ encoder_info.fps, 1 };
-  this->codec_ctx->bit_rate = settings.bitrate;
-  this->codec_ctx->gop_size = settings.gop_size;
-  this->codec_ctx->max_b_frames = 0;
-
-  if (!qcamera_h264 && !use_vaapi && codec_ctx->priv_data != nullptr) {
-    // Keep HEVC deterministic and low-latency for real-time logging on PC.
-    av_opt_set(codec_ctx->priv_data, "preset", "ultrafast", 0);
-    av_opt_set(codec_ctx->priv_data, "tune", "zerolatency", 0);
-    av_opt_set(codec_ctx->priv_data, "x265-params", "bframes=0:repeat-headers=1", 0);
-  }
+  LOGW("encoder_open selected codec=%s use_vaapi=%d use_qsv=%d pix_fmt=%d out=%dx%d bitrate=%d",
+       codec ? codec->name : "<null>", use_vaapi, use_qsv, (int)this->codec_ctx->pix_fmt, this->codec_ctx->width, this->codec_ctx->height, (int)this->codec_ctx->bit_rate);
   if (use_vaapi) {
     LOGW("using VAAPI encoder %s for %s", codec->name, encoder_info.publish_name);
+    if (hw_device_ctx == nullptr) {
+      LOGE("vaapi missing hw device ctx for %s", encoder_info.publish_name);
+      avcodec_free_context(&codec_ctx);
+      return;
+    } else {
     codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
-    codec_ctx->hw_frames_ctx = av_buffer_ref(hw_frames_ctx);
     sw_frame = av_frame_alloc();
     hw_frame = av_frame_alloc();
     if (sw_frame == nullptr || hw_frame == nullptr) {
-      LOGW("failed to allocate VAAPI frames, fallback to software encoder");
+      LOGE("failed to allocate VAAPI frames for %s", encoder_info.publish_name);
       av_frame_free(&sw_frame);
       av_frame_free(&hw_frame);
       avcodec_free_context(&codec_ctx);
-      use_vaapi = false;
-      codec = qcamera_h264 ? avcodec_find_encoder(AV_CODEC_ID_H264) : avcodec_find_encoder(AV_CODEC_ID_HEVC);
-      if (codec == nullptr) {
-        LOGE("software fallback encoder not found for %s", encoder_info.publish_name);
-        return;
-      }
-      this->codec_ctx = avcodec_alloc_context3(codec);
-      if (this->codec_ctx == nullptr) {
-        LOGE("avcodec_alloc_context3 failed for software fallback %s", encoder_info.publish_name);
-        return;
-      }
-      this->codec_ctx->width = frame->width;
-      this->codec_ctx->height = frame->height;
-      this->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-      this->codec_ctx->time_base = (AVRational){ 1, encoder_info.fps };
-      this->codec_ctx->framerate = (AVRational){ encoder_info.fps, 1 };
-      this->codec_ctx->bit_rate = settings.bitrate;
-      this->codec_ctx->gop_size = settings.gop_size;
-      this->codec_ctx->max_b_frames = 0;
-      if (!qcamera_h264 && codec_ctx->priv_data != nullptr) {
-        av_opt_set(codec_ctx->priv_data, "preset", "ultrafast", 0);
-        av_opt_set(codec_ctx->priv_data, "tune", "zerolatency", 0);
-        av_opt_set(codec_ctx->priv_data, "x265-params", "bframes=0:repeat-headers=1", 0);
-      }
+      return;
     } else {
       sw_frame->format = AV_PIX_FMT_NV12;
       sw_frame->width = out_width;
       sw_frame->height = out_height;
       int berr = av_frame_get_buffer(sw_frame, 32);
       if (berr < 0) {
-        LOGW("av_frame_get_buffer failed (%d), fallback to software encoder", berr);
+        LOGE("av_frame_get_buffer failed (%d) for %s", berr, encoder_info.publish_name);
         av_frame_free(&sw_frame);
         av_frame_free(&hw_frame);
         avcodec_free_context(&codec_ctx);
-        use_vaapi = false;
-        codec = qcamera_h264 ? avcodec_find_encoder(AV_CODEC_ID_H264) : avcodec_find_encoder(AV_CODEC_ID_HEVC);
-        if (codec == nullptr) {
-          LOGE("software fallback encoder not found for %s", encoder_info.publish_name);
-          return;
-        }
-        this->codec_ctx = avcodec_alloc_context3(codec);
-        if (this->codec_ctx == nullptr) {
-          LOGE("avcodec_alloc_context3 failed for software fallback %s", encoder_info.publish_name);
-          return;
-        }
-        this->codec_ctx->width = frame->width;
-        this->codec_ctx->height = frame->height;
-        this->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-        this->codec_ctx->time_base = (AVRational){ 1, encoder_info.fps };
-        this->codec_ctx->framerate = (AVRational){ encoder_info.fps, 1 };
-        this->codec_ctx->bit_rate = settings.bitrate;
-        this->codec_ctx->gop_size = settings.gop_size;
-        this->codec_ctx->max_b_frames = 0;
-        if (!qcamera_h264 && codec_ctx->priv_data != nullptr) {
-          av_opt_set(codec_ctx->priv_data, "preset", "ultrafast", 0);
-          av_opt_set(codec_ctx->priv_data, "tune", "zerolatency", 0);
-          av_opt_set(codec_ctx->priv_data, "x265-params", "bframes=0:repeat-headers=1", 0);
-        }
+        return;
       } else {
         nv12_buf.resize(out_width * out_height * 3 / 2);
+        if (!init_vaapi_filters()) {
+          LOGE("failed to initialize VAAPI upload filters for %s", encoder_info.publish_name);
+          avfilter_graph_free(&filter_graph);
+          buffersrc_ctx = NULL;
+          buffersink_ctx = NULL;
+          av_frame_free(&sw_frame);
+          av_frame_free(&hw_frame);
+          avcodec_free_context(&codec_ctx);
+          return;
+        } else {
+          LOGW("vaapi filters ready for %s hw_frames_ctx=%p", encoder_info.publish_name, hw_frames_ctx);
+          if (hw_frames_ctx == nullptr) {
+            LOGE("vaapi filters returned null hw_frames_ctx for %s", encoder_info.publish_name);
+            avfilter_graph_free(&filter_graph);
+            buffersrc_ctx = NULL;
+            buffersink_ctx = NULL;
+            av_frame_free(&sw_frame);
+            av_frame_free(&hw_frame);
+            avcodec_free_context(&codec_ctx);
+            return;
+          } else {
+            codec_ctx->hw_frames_ctx = av_buffer_ref(hw_frames_ctx);
+          }
+        }
       }
+    }
     }
   } else if (use_qsv) {
     LOGW("using QSV encoder %s for %s", codec->name, encoder_info.publish_name);
@@ -248,8 +361,14 @@ void FfmpegEncoder::encoder_open() {
     nv12_buf.resize(out_width * out_height * 3 / 2);
   }
 
+  if (!use_vaapi && !use_qsv) {
+    av_buffer_unref(&this->codec_ctx->hw_device_ctx);
+    av_buffer_unref(&this->codec_ctx->hw_frames_ctx);
+  }
+  LOGW("pre-open codec=%s publish=%s ctx_pix_fmt=%d sw_pix_fmt=%d frame_fmt=%d use_vaapi=%d use_qsv=%d",
+       codec ? codec->name : "<null>", encoder_info.publish_name, (int)this->codec_ctx->pix_fmt, (int)this->codec_ctx->sw_pix_fmt, (int)frame->format, use_vaapi, use_qsv);
   int err = avcodec_open2(this->codec_ctx, codec, NULL);
-  if (err < 0 && (use_vaapi || use_qsv)) {
+  if (err < 0 && (use_vaapi || use_qsv) && qcamera_h264) {
     LOGW("hardware encoder open failed (%d), fallback to software for %s", err, encoder_info.publish_name);
     avcodec_free_context(&codec_ctx);
     av_frame_free(&sw_frame);
@@ -261,23 +380,11 @@ void FfmpegEncoder::encoder_open() {
       LOGE("software encoder unavailable for fallback %s", encoder_info.publish_name);
       return;
     }
-    this->codec_ctx = avcodec_alloc_context3(sw_codec);
+    this->codec_ctx = make_software_codec_ctx(sw_codec, encoder_info, frame->width, frame->height,
+                                              settings.bitrate, settings.gop_size, qcamera_h264);
     if (this->codec_ctx == nullptr) {
-      LOGE("avcodec_alloc_context3 failed for software fallback %s", encoder_info.publish_name);
+      LOGE("software codec ctx init failed for fallback %s", encoder_info.publish_name);
       return;
-    }
-    this->codec_ctx->width = frame->width;
-    this->codec_ctx->height = frame->height;
-    this->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    this->codec_ctx->time_base = (AVRational){ 1, encoder_info.fps };
-    this->codec_ctx->framerate = (AVRational){ encoder_info.fps, 1 };
-    this->codec_ctx->bit_rate = settings.bitrate;
-    this->codec_ctx->gop_size = settings.gop_size;
-    this->codec_ctx->max_b_frames = 0;
-    if (!qcamera_h264 && codec_ctx->priv_data != nullptr) {
-      av_opt_set(codec_ctx->priv_data, "preset", "ultrafast", 0);
-      av_opt_set(codec_ctx->priv_data, "tune", "zerolatency", 0);
-      av_opt_set(codec_ctx->priv_data, "x265-params", "bframes=0:repeat-headers=1", 0);
     }
     err = avcodec_open2(this->codec_ctx, sw_codec, NULL);
   }
@@ -286,6 +393,7 @@ void FfmpegEncoder::encoder_open() {
     avcodec_free_context(&codec_ctx);
     return;
   }
+  LOGW("avcodec_open2 ok codec=%s publish=%s pix_fmt=%d", codec ? codec->name : "<null>", encoder_info.publish_name, (int)codec_ctx->pix_fmt);
 
   is_open = true;
   segment_num++;
@@ -299,6 +407,9 @@ void FfmpegEncoder::encoder_close() {
   avcodec_free_context(&codec_ctx);
   av_frame_free(&sw_frame);
   av_frame_free(&hw_frame);
+  avfilter_graph_free(&filter_graph);
+  buffersrc_ctx = NULL;
+  buffersink_ctx = NULL;
   is_open = false;
 }
 
@@ -349,18 +460,27 @@ int FfmpegEncoder::encode_frame(VisionBuf* buf, VisionIpcBufExtra *extra) {
     libyuv::CopyPlane(dst_y, out_width, sw_frame->data[0], sw_frame->linesize[0], out_width, out_height);
     libyuv::CopyPlane(dst_uv, out_width, sw_frame->data[1], sw_frame->linesize[1], out_width, out_height / 2);
 
+    sw_frame->pts = frame_counter++;
+    if (frame_counter <= 8) {
+      LOGW("vaapi input publish=%s pts=%" PRId64 " w=%d h=%d ls=[%d,%d] keyhint=%d",
+           encoder_info.publish_name, sw_frame->pts, sw_frame->width, sw_frame->height,
+           sw_frame->linesize[0], sw_frame->linesize[1], packet_counter == 0 ? 1 : 0);
+    }
+    err = av_buffersrc_add_frame_flags(buffersrc_ctx, sw_frame, AV_BUFFERSRC_FLAG_KEEP_REF);
+    if (err < 0) {
+      LOGE("av_buffersrc_add_frame_flags failed %d", err);
+      return -1;
+    }
     av_frame_unref(hw_frame);
-    err = av_hwframe_get_buffer(codec_ctx->hw_frames_ctx, hw_frame, 0);
+    err = av_buffersink_get_frame(buffersink_ctx, hw_frame);
     if (err < 0) {
-      LOGE("av_hwframe_get_buffer failed %d", err);
+      if (err == AVERROR(EAGAIN) && frame_counter <= 8) {
+        LOGW("vaapi hwupload EAGAIN publish=%s pts=%" PRId64, encoder_info.publish_name, sw_frame->pts);
+      }
+      LOGE("av_buffersink_get_frame failed %d", err);
       return -1;
     }
-    err = av_hwframe_transfer_data(hw_frame, sw_frame, 0);
-    if (err < 0) {
-      LOGE("av_hwframe_transfer_data failed %d", err);
-      return -1;
-    }
-    hw_frame->pts = frame_counter++;
+    hw_frame->pts = sw_frame->pts;
 
     int ret = 0;
     err = avcodec_send_frame(this->codec_ctx, hw_frame);
@@ -375,8 +495,12 @@ int FfmpegEncoder::encode_frame(VisionBuf* buf, VisionIpcBufExtra *extra) {
     while (ret >= 0) {
       err = avcodec_receive_packet(this->codec_ctx, &pkt);
       if (err == AVERROR_EOF) {
+        LOGW("vaapi receive EOF publish=%s", encoder_info.publish_name);
         break;
       } else if (err == AVERROR(EAGAIN)) {
+        if (packet_counter == 0 && frame_counter <= 5) {
+          LOGW("vaapi receive EAGAIN publish=%s frame_counter=%d", encoder_info.publish_name, frame_counter);
+        }
         ret = 0;
         break;
       } else if (err < 0) {
@@ -385,12 +509,19 @@ int FfmpegEncoder::encode_frame(VisionBuf* buf, VisionIpcBufExtra *extra) {
         break;
       }
 
+      if (packet_counter < 5) {
+        LOGW("vaapi packet publish=%s pts=%" PRId64 " size=%d flags=%x idx=%d frame_id=%d",
+             encoder_info.publish_name, pkt.pts, pkt.size, pkt.flags, packet_counter, extra->frame_id);
+      }
       publisher_publish(segment_num, packet_counter, *extra,
         (pkt.flags & AV_PKT_FLAG_KEY) ? V4L2_BUF_FLAG_KEYFRAME : 0,
         kj::arrayPtr<capnp::byte>(pkt.data, (size_t)0),
         kj::arrayPtr<capnp::byte>(pkt.data, pkt.size));
       packet_counter++;
       av_packet_unref(&pkt);
+    }
+    if (packet_counter == 0 && frame_counter == 8) {
+      LOGW("vaapi priming no packets yet publish=%s after_frames=%d", encoder_info.publish_name, frame_counter);
     }
     return ret;
   }

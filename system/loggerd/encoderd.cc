@@ -58,12 +58,15 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
 
   std::vector<std::unique_ptr<Encoder>> encoders;
   VisionIpcClient vipc_client = VisionIpcClient("camerad", cam_info.stream_type, false);
+  int debug_encode_calls = 0;
 
   std::unique_ptr<JpegEncoder> jpeg_encoder;
 
   int cur_seg = 0;
   while (!do_exit) {
-    if (!vipc_client.connect(false)) {
+    bool connected = vipc_client.connect(false);
+    LOGW("encoderd connect stream=%s ok=%d", cam_info.thread_name, connected);
+    if (!connected) {
       util::sleep_for(5);
       continue;
     }
@@ -89,22 +92,44 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
     }
 
     bool lagging = false;
+    int debug_recv_calls = 0;
+    int debug_null_recvs = 0;
     while (!do_exit) {
       VisionIpcBufExtra extra;
       VisionBuf* buf = vipc_client.recv(&extra);
-      if (buf == nullptr) continue;
-
+      if (buf == nullptr) {
+        if (debug_null_recvs < 8) {
+          LOGW("encoderd recv-null stream=%s", cam_info.thread_name);
+        }
+        debug_null_recvs++;
+        continue;
+      }
+      if (debug_recv_calls < 8) {
+        LOGW("encoderd recv stream=%s frame_id=%d buf_id=%" PRIu64,
+             cam_info.thread_name, extra.frame_id, buf->get_frame_id());
+      }
       // detect loop around and drop the frames
       if (buf->get_frame_id() != extra.frame_id) {
         if (!lagging) {
           LOGE("encoder %s lag  buffer id: %" PRIu64 " extra id: %d", cam_info.thread_name, buf->get_frame_id(), extra.frame_id);
           lagging = true;
         }
+        if (debug_recv_calls < 8) {
+          LOGW("encoderd lag-drop stream=%s frame_id=%d buf_id=%" PRIu64,
+               cam_info.thread_name, extra.frame_id, buf->get_frame_id());
+        }
+        debug_recv_calls++;
         continue;
       }
       lagging = false;
 
-      if (!sync_encoders(s, cam_info.stream_type, extra.frame_id)) {
+      bool synced = sync_encoders(s, cam_info.stream_type, extra.frame_id);
+      if (debug_recv_calls < 8) {
+        LOGW("encoderd sync stream=%s frame_id=%d synced=%d start_frame_id=%u ready=%d",
+             cam_info.thread_name, extra.frame_id, synced, s->start_frame_id.load(), s->encoders_ready.load());
+      }
+      if (!synced) {
+        debug_recv_calls++;
         continue;
       }
       if (do_exit) break;
@@ -121,12 +146,22 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
 
       // encode a frame
       for (int i = 0; i < encoders.size(); ++i) {
+        if (debug_encode_calls < 8) {
+          LOGW("encoderd pre-encode stream=%s frame_id=%d buf_id=%" PRIu64 " idx=%d",
+               cam_info.thread_name, extra.frame_id, buf->get_frame_id(), i);
+        }
         int out_id = encoders[i]->encode_frame(buf, &extra);
+        if (debug_encode_calls < 8) {
+          LOGW("encoderd post-encode stream=%s frame_id=%d idx=%d out_id=%d",
+               cam_info.thread_name, extra.frame_id, i, out_id);
+        }
+        debug_encode_calls++;
 
         if (out_id == -1) {
-          LOGE("Failed to encode frame. frame_id: %d", extra.frame_id);
+          LOGE("Failed to encode frame. frame_id: %d stream=%s", extra.frame_id, cam_info.thread_name);
         }
       }
+      debug_recv_calls++;
 
       if (jpeg_encoder && (extra.frame_id % 1200 == 100)) {
         jpeg_encoder->pushThumbnail(buf, extra);

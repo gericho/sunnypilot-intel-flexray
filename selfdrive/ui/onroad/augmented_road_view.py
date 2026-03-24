@@ -1,4 +1,5 @@
 import time
+import os
 import numpy as np
 import pyray as rl
 from cereal import log, messaging
@@ -25,6 +26,7 @@ OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.LiveCalibrationData.Status.calibrated
 ROAD_CAM = VisionStreamType.VISION_STREAM_ROAD
 WIDE_CAM = VisionStreamType.VISION_STREAM_WIDE_ROAD
+FORCE_WIDE_MAIN = os.getenv("UI_FORCE_WIDE_MAIN", "").strip().lower() in ("1", "true", "yes", "on")
 DEFAULT_DEVICE_CAMERA = DEVICE_CAMERAS["tici", "ar0231"]
 
 BORDER_COLORS = {
@@ -41,6 +43,8 @@ INF_POINT = np.array([1000.0, 0.0, 0.0])
 
 class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
   def __init__(self, stream_type: VisionStreamType = VisionStreamType.VISION_STREAM_ROAD):
+    if FORCE_WIDE_MAIN:
+      stream_type = WIDE_CAM
     CameraView.__init__(self, "camerad", stream_type)
     AugmentedRoadViewSP.__init__(self)
     self._set_placeholder_color(BORDER_COLORS[UIStatus.DISENGAGED])
@@ -130,6 +134,11 @@ class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
     rl.draw_rectangle_rounded_lines_ex(border_rect, border_roundness, 10, UI_BORDER_SIZE, border_color)
 
   def _switch_stream_if_needed(self, sm):
+    if FORCE_WIDE_MAIN:
+      if self.stream_type != WIDE_CAM:
+        self.switch_stream(WIDE_CAM)
+      return
+
     if sm['selfdriveState'].experimentalMode and WIDE_CAM in self.available_streams:
       v_ego = sm['carState'].vEgo
       if v_ego < WIDE_CAM_MAX_SPEED:
@@ -184,7 +193,7 @@ class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
     is_wide_camera = self.stream_type == WIDE_CAM
     intrinsic = device_camera.ecam.intrinsics if is_wide_camera else device_camera.fcam.intrinsics
     calibration = self.view_from_wide_calib if is_wide_camera else self.view_from_calib
-    zoom = 2.0 if is_wide_camera else 1.1
+    zoom = 1.02 if is_wide_camera else 1.1
 
     # Calculate transforms for vanishing point
     calib_transform = intrinsic @ calibration

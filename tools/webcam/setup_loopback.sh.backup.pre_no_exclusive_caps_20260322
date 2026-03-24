@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+sudo modprobe -r v4l2loopback 2>/dev/null || true
+sudo modprobe v4l2loopback devices=2 video_nr=10,11 card_label='BRIO Wide,BRIO Road' exclusive_caps=1
+
+ls -l /dev/video10 /dev/video11
+v4l2-ctl --list-devices

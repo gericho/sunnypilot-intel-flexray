@@ -1,0 +1,561 @@
+import ctypes
+import fcntl
+import os
+import shutil
+import subprocess
+import time
+
+import cv2 as cv
+import numpy as np
+
+
+def _env_flag(name: str, default: bool) -> bool:
+  v = os.getenv(name)
+  if v is None:
+    return default
+  return v.strip().lower() in ("1", "true", "yes", "on")
+
+IOC_NRBITS = 8
+IOC_TYPEBITS = 8
+IOC_SIZEBITS = 14
+IOC_DIRBITS = 2
+IOC_NRSHIFT = 0
+IOC_TYPESHIFT = IOC_NRSHIFT + IOC_NRBITS
+IOC_SIZESHIFT = IOC_TYPESHIFT + IOC_TYPEBITS
+IOC_DIRSHIFT = IOC_SIZESHIFT + IOC_SIZEBITS
+IOC_WRITE = 1
+IOC_READ = 2
+UVC_SET_CUR = 0x01
+LOGITECH_BRIO_FOV_UNIT = 10
+LOGITECH_BRIO_FOV_SELECTOR = 5
+LOGITECH_BRIO_FOV_MAP = {
+  "90": 0,
+  "78": 1,
+  "65": 2,
+}
+
+
+def _IOC(direction: int, type_chr: str, nr: int, size: int) -> int:
+  return (
+    (direction << IOC_DIRSHIFT) |
+    (ord(type_chr) << IOC_TYPESHIFT) |
+    (nr << IOC_NRSHIFT) |
+    (size << IOC_SIZESHIFT)
+  )
+
+
+class _UvcXuControlQuery(ctypes.Structure):
+  _fields_ = [
+    ("unit", ctypes.c_uint8),
+    ("selector", ctypes.c_uint8),
+    ("query", ctypes.c_uint8),
+    ("size", ctypes.c_uint16),
+    ("data", ctypes.c_void_p),
+  ]
+
+
+UVCIOC_CTRL_QUERY = _IOC(IOC_READ | IOC_WRITE, "u", 0x21, ctypes.sizeof(_UvcXuControlQuery))
+
+
+def _set_brio_fov(device_path: str, fov: str) -> bool:
+  value = LOGITECH_BRIO_FOV_MAP.get(str(fov).strip())
+  if value is None:
+    return False
+  fd = None
+  try:
+    fd = os.open(device_path, os.O_RDWR)
+    buf = ctypes.create_string_buffer(bytes([value]))
+    query = _UvcXuControlQuery(
+      unit=LOGITECH_BRIO_FOV_UNIT,
+      selector=LOGITECH_BRIO_FOV_SELECTOR,
+      query=UVC_SET_CUR,
+      size=1,
+      data=ctypes.addressof(buf),
+    )
+    fcntl.ioctl(fd, UVCIOC_CTRL_QUERY, query)
+    return True
+  except OSError:
+    return False
+  finally:
+    if fd is not None:
+      os.close(fd)
+
+class Camera:
+  def __init__(self, cam_type_state, stream_type, camera_id):
+    try:
+      camera_id = int(camera_id)
+    except ValueError: # allow strings, ex: /dev/video0
+      pass
+    self._main_cam_is_wide = _env_flag("WEBCAM_MAIN_IS_WIDE", False)
+    self._is_main_camera = cam_type_state == "roadCameraState" or (self._main_cam_is_wide and cam_type_state == "wideRoadCameraState")
+    self.cam_type_state = cam_type_state
+    self.stream_type = stream_type
+    self.cur_frame_id = 0
+    self.ffmpeg_proc = None
+
+    print(f"Opening {cam_type_state} at {camera_id}")
+
+    # Use per-camera env settings from go.sh when available.
+    if cam_type_state == "driverCameraState":
+      w = float(os.getenv("DRIVER_W", "1280"))
+      h = float(os.getenv("DRIVER_H", "720"))
+      fps = float(os.getenv("DRIVER_FPS", "20"))
+      fourcc = os.getenv("DRIVER_FOURCC", "YUYV").strip().upper()
+    elif cam_type_state == "wideRoadCameraState":
+      w = float(os.getenv("WIDE_W", os.getenv("ROAD_W", "1280")))
+      h = float(os.getenv("WIDE_H", os.getenv("ROAD_H", "720")))
+      fps = float(os.getenv("WIDE_FPS", os.getenv("ROAD_FPS", "20")))
+      fourcc = os.getenv("WIDE_FOURCC", os.getenv("ROAD_FOURCC", "NV12")).strip().upper()
+    else:
+      w = float(os.getenv("ROAD_W", "1280"))
+      h = float(os.getenv("ROAD_H", "720"))
+      fps = float(os.getenv("ROAD_FPS", "20"))
+      fourcc = os.getenv("ROAD_FOURCC", "NV12").strip().upper()
+
+    self.fps = fps
+    self.camera_id = camera_id
+    self.device_path = camera_id if isinstance(camera_id, str) and str(camera_id).startswith("/dev/video") else f"/dev/video{camera_id}" if isinstance(camera_id, int) else None
+    self._control_device_path = self.device_path
+    if self._is_main_camera and os.getenv("WEBCAM_SPLIT_ENABLE", "0").strip().lower() in ("1", "true", "yes", "on"):
+      split_source = os.getenv("WEBCAM_SPLIT_SOURCE_CAM", "0").strip()
+      self._control_device_path = split_source if split_source.startswith("/dev/video") else f"/dev/video{split_source}"
+    backend_key = "WEBCAM_BACKEND"
+    if cam_type_state == "driverCameraState":
+      backend_key = "WEBCAM_DRIVER_BACKEND"
+    elif cam_type_state == "wideRoadCameraState":
+      backend_key = "WEBCAM_WIDE_BACKEND"
+    elif cam_type_state == "roadCameraState":
+      backend_key = "WEBCAM_ROAD_BACKEND"
+    self.backend = os.getenv(backend_key, os.getenv("WEBCAM_BACKEND", "opencv")).strip().lower()
+    self.ffmpeg_output = os.getenv("WEBCAM_FFMPEG_OUTPUT", "nv12").strip().lower()
+    self.cap = None
+    self._requested_w = int(w)
+    self._requested_h = int(h)
+    self._requested_fps = int(fps)
+    self._requested_fourcc = fourcc
+    self._controls_applied = False
+    self._manual_exposure_default = int(os.getenv("WEBCAM_MANUAL_EXPOSURE", "24"))
+    self._manual_gain_default = int(os.getenv("WEBCAM_MANUAL_GAIN", "0"))
+    self._dynamic_exposure_enabled = self._is_main_camera and _env_flag("WEBCAM_DYNAMIC_EXPOSURE", True)
+    self._dynamic_exposure_min = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MIN", "8"))
+    self._dynamic_exposure_max = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MAX", "1500"))
+    initial_exposure_env = os.getenv("WEBCAM_DYNAMIC_EXPOSURE_INITIAL")
+    initial_exposure_default = (self._dynamic_exposure_min + self._dynamic_exposure_max) / 2.0
+    self._dynamic_exposure_current = float(initial_exposure_env) if initial_exposure_env is not None else initial_exposure_default
+    self._dynamic_exposure_interval_s = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_INTERVAL", "0.1"))
+    self._dynamic_exposure_sample_every = max(1, int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_SAMPLE_EVERY", "2")))
+    self._dynamic_exposure_target_low = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_TARGET_LOW", "70"))
+    self._dynamic_exposure_target_high = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_TARGET_HIGH", "135"))
+    self._dynamic_exposure_target_mid = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_TARGET_MID", "96"))
+    self._dynamic_exposure_clip_high = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_CLIP_HIGH", "0.02"))
+    self._dynamic_exposure_clip_low = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_CLIP_LOW", "0.0005"))
+    self._dynamic_exposure_smoothing = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_SMOOTHING", "0.6"))
+    self._dynamic_exposure_max_delta = float(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MAX_DELTA", "250.0"))
+    self._dynamic_gain_enabled = _env_flag("WEBCAM_DYNAMIC_GAIN", True)
+    self._dynamic_gain_max = int(os.getenv("WEBCAM_DYNAMIC_GAIN_MAX", "255"))
+    self._dynamic_gain_start_exposure = float(os.getenv("WEBCAM_DYNAMIC_GAIN_START_EXPOSURE", "120"))
+    self._dynamic_gain_full_exposure = float(os.getenv("WEBCAM_DYNAMIC_GAIN_FULL_EXPOSURE", "1500"))
+    self._dynamic_exposure_frame_count = 0
+    self._dynamic_exposure_last_change = 0.0
+
+    if self.backend == "ffmpeg":
+      self.w_int = int(w)
+      self.h_int = int(h)
+      negotiated_fps = fps
+      self.W = float(self.w_int)
+      self.H = float(self.h_int)
+    else:
+      self.cap = cv.VideoCapture(camera_id, cv.CAP_V4L2)
+      if not self.cap.isOpened():
+        self.cap = cv.VideoCapture(camera_id)
+      self._apply_v4l2_controls(int(w), int(h), int(fps), fourcc)
+      self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
+      if len(fourcc) == 4:
+        self.cap.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc(*fourcc))
+      self.cap.set(cv.CAP_PROP_FRAME_WIDTH, w)
+      self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, h)
+      self.cap.set(cv.CAP_PROP_FPS, fps)
+      self.W = self.cap.get(cv.CAP_PROP_FRAME_WIDTH)
+      self.H = self.cap.get(cv.CAP_PROP_FRAME_HEIGHT)
+      negotiated_fps = self.cap.get(cv.CAP_PROP_FPS)
+      self.w_int = int(self.W)
+      self.h_int = int(self.H)
+    self.nv12_backend = os.getenv("WEBCAM_NV12_BACKEND", "opencv").strip().lower()
+    self.flip_mode = os.getenv("WEBCAM_FLIP", "-1").strip().lower()
+    self.flip_code = None if self.flip_mode in ("none", "off", "") else int(self.flip_mode)
+    self.profile = os.getenv("WEBCAM_PROFILE", "0").strip().lower() in ("1", "true", "yes", "on")
+    self.raw_nv12_enabled = os.getenv("WEBCAM_RAW_NV12", "1").strip().lower() in ("1", "true", "yes", "on")
+    self._raw_nv12_active = False
+    self._raw_nv12_probed = False
+
+    print(f"[webcamerad:{cam_type_state}] requested={int(w)}x{int(h)}@{fps:g} {fourcc} negotiated={self.w_int}x{self.h_int}@{negotiated_fps:g} backend={self.backend}")
+    if self._dynamic_exposure_enabled:
+      print(
+        f"[webcamerad:{cam_type_state}] dynamic_exposure=active "
+        f"range=[{self._dynamic_exposure_min},{self._dynamic_exposure_max}] initial={self._dynamic_exposure_current:.1f}"
+      )
+
+    # Fast path: if backend can deliver NV12 raw frames, skip BGR->NV12 conversion.
+    # Flip on raw NV12 is not handled here, so keep RGB conversion when flip is requested.
+    if self.cap is not None and self.raw_nv12_enabled and self.flip_code is None:
+      self.cap.set(cv.CAP_PROP_CONVERT_RGB, 0)
+
+    self._frame_w = 0
+    self._frame_h = 0
+    self._nv12_buf = None
+    self._uv_buf = None
+
+  def _apply_v4l2_controls(self, w: int, h: int, fps: int, fourcc: str) -> None:
+    if not self._control_device_path or self._controls_applied:
+      return
+    cmds = [
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-fmt-video=width={w},height={h},pixelformat={fourcc}"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-parm={fps}"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=zoom_absolute=100"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=power_line_frequency=1"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=auto_exposure=1"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=exposure_time_absolute={self._manual_exposure_default}"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=backlight_compensation=0"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=gain={self._manual_gain_default}"],
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=focus_automatic_continuous=0"],
+    ]
+    brio_fov = os.getenv("WEBCAM_BRIO_FOV")
+    if brio_fov and self._is_main_camera:
+      _set_brio_fov(self._control_device_path, brio_fov)
+    for cmd in cmds:
+      try:
+        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+      except Exception:
+        pass
+    self._controls_applied = True
+    if self._dynamic_exposure_enabled:
+      self._set_manual_exposure(self._dynamic_exposure_current)
+
+  def _set_manual_exposure(self, exposure_time: int) -> None:
+    if not self._control_device_path:
+      return
+    exposure_time = max(3, int(round(exposure_time)))
+    gain = 0
+    if self._dynamic_exposure_enabled and self._dynamic_gain_enabled:
+      if exposure_time > self._dynamic_gain_start_exposure:
+        span = max(1.0, self._dynamic_gain_full_exposure - self._dynamic_gain_start_exposure)
+        frac = min(max((exposure_time - self._dynamic_gain_start_exposure) / span, 0.0), 1.0)
+        gain = int(round(frac * self._dynamic_gain_max))
+    cmds = [
+      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=auto_exposure=1"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=exposure_time_absolute={exposure_time}"],
+      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=gain={gain}"],
+    ]
+    for cmd in cmds:
+      try:
+        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+      except Exception:
+        pass
+
+  def _maybe_update_dynamic_exposure_stats(self, mean_luma: float, high_clip: float, low_clip: float) -> None:
+    if not self._dynamic_exposure_enabled:
+      return
+    self._dynamic_exposure_frame_count += 1
+    if (self._dynamic_exposure_frame_count % self._dynamic_exposure_sample_every) != 0:
+      return
+    now = time.monotonic()
+    if (now - self._dynamic_exposure_last_change) < self._dynamic_exposure_interval_s:
+      return
+
+    if self._dynamic_exposure_target_low <= mean_luma <= self._dynamic_exposure_target_high and high_clip <= self._dynamic_exposure_clip_high:
+      return
+    target = self._dynamic_exposure_target_mid
+    ratio = target / max(mean_luma, 1.0)
+    if high_clip > self._dynamic_exposure_clip_high:
+      ratio *= 0.75
+    elif low_clip > 0.08 and mean_luma < self._dynamic_exposure_target_low:
+      ratio *= 1.15
+    desired = self._dynamic_exposure_current * ratio
+    smoothed = (
+      (1.0 - self._dynamic_exposure_smoothing) * self._dynamic_exposure_current +
+      self._dynamic_exposure_smoothing * desired
+    )
+    lower = self._dynamic_exposure_current - self._dynamic_exposure_max_delta
+    upper = self._dynamic_exposure_current + self._dynamic_exposure_max_delta
+    new_exposure = min(max(smoothed, lower), upper)
+    new_exposure = min(max(new_exposure, self._dynamic_exposure_min), self._dynamic_exposure_max)
+    if abs(new_exposure - self._dynamic_exposure_current) < 0.75:
+      return
+    self._dynamic_exposure_current = float(new_exposure)
+    self._set_manual_exposure(new_exposure)
+    self._dynamic_exposure_last_change = now
+    print(
+      f"[webcamerad:{self.cam_type_state}] dynamic_exposure_value={self._dynamic_exposure_current:.1f} "
+      f"mean={mean_luma:.1f} high_clip={high_clip:.3f} low_clip={low_clip:.3f}"
+    )
+
+  def _maybe_update_dynamic_exposure_bgr(self, frame: np.ndarray) -> None:
+    gray = cv.cvtColor(cv.resize(frame, (160, 90), interpolation=cv.INTER_AREA), cv.COLOR_BGR2GRAY)
+    mean_luma = float(gray.mean())
+    high_clip = float((gray >= 245).mean())
+    low_clip = float((gray <= 10).mean())
+    self._maybe_update_dynamic_exposure_stats(mean_luma, high_clip, low_clip)
+
+  def _maybe_update_dynamic_exposure_nv12(self, payload) -> None:
+    if not self._dynamic_exposure_enabled:
+      return
+    y_plane = np.frombuffer(payload, dtype=np.uint8, count=self.w_int * self.h_int).reshape((self.h_int, self.w_int))
+    gray = cv.resize(y_plane, (160, 90), interpolation=cv.INTER_AREA)
+    mean_luma = float(gray.mean())
+    high_clip = float((gray >= 245).mean())
+    low_clip = float((gray <= 10).mean())
+    self._maybe_update_dynamic_exposure_stats(mean_luma, high_clip, low_clip)
+
+  def _is_nv12_frame(self, frame):
+    if frame is None or frame.dtype != np.uint8:
+      return False
+    expected = self.w_int * self.h_int * 3 // 2
+    return frame.size == expected
+
+  def _ensure_nv12_buffers(self, w, h):
+    if self._frame_w == w and self._frame_h == h and self._nv12_buf is not None:
+      return
+    self._frame_w = w
+    self._frame_h = h
+    self._nv12_buf = np.empty((h * 3 // 2, w), dtype=np.uint8)
+    self._uv_buf = np.empty((h // 2, w), dtype=np.uint8)
+
+  def _bgr2nv12_opencv(self, bgr):
+    h, w = bgr.shape[:2]
+    self._ensure_nv12_buffers(w, h)
+
+    i420 = cv.cvtColor(bgr, cv.COLOR_BGR2YUV_I420)
+    self._nv12_buf[:h, :] = i420[:h, :]
+
+    y_size = w * h
+    flat = i420.reshape(-1)
+    u = flat[y_size:y_size + (y_size // 4)].reshape(h // 2, w // 2)
+    v = flat[y_size + (y_size // 4):y_size + (y_size // 2)].reshape(h // 2, w // 2)
+    self._uv_buf[:, 0::2] = u
+    self._uv_buf[:, 1::2] = v
+    self._nv12_buf[h:, :] = self._uv_buf
+    return self._nv12_buf
+
+  def _bgr2nv12_legacy(self, bgr):
+    import av
+    frame = av.VideoFrame.from_ndarray(bgr, format='bgr24')
+    return frame.reformat(format='nv12').to_ndarray()
+
+  def bgr2nv12(self, bgr):
+    if self.nv12_backend == "legacy":
+      return self._bgr2nv12_legacy(bgr)
+    return self._bgr2nv12_opencv(bgr)
+
+  def _open_ffmpeg(self):
+    if self.ffmpeg_proc is not None or not self.device_path:
+      return
+    self._apply_v4l2_controls(self._requested_w, self._requested_h, self._requested_fps, self._requested_fourcc)
+    vf = None
+    if self.flip_code == -1:
+      vf = "hflip,vflip"
+    elif self.flip_code == 0:
+      vf = "vflip"
+    elif self.flip_code == 1:
+      vf = "hflip"
+    ffmpeg_bin = os.getenv("WEBCAM_FFMPEG_BIN")
+    if not ffmpeg_bin:
+      ffmpeg_bin = "/usr/bin/ffmpeg" if os.path.exists("/usr/bin/ffmpeg") else (shutil.which("ffmpeg") or "ffmpeg")
+    input_fourcc = "mjpeg" if self._requested_fourcc == "MJPG" else self._requested_fourcc.lower()
+    use_mjpg_qsv = os.getenv("WEBCAM_MJPG_QSV", "0").strip().lower() in ("1", "true", "yes", "on")
+    cmd = [
+      ffmpeg_bin,
+      "-hide_banner",
+      "-loglevel",
+      "error",
+    ]
+    split_road_cam = os.getenv("WEBCAM_SPLIT_ROAD_CAM", "11").strip()
+    split_road_path = split_road_cam if split_road_cam.startswith("/dev/video") else f"/dev/video{split_road_cam}"
+    is_loopback_road = self.cam_type_state == "roadCameraState" and self.device_path == split_road_path
+    if not is_loopback_road:
+      cmd += [
+        "-fflags",
+        "nobuffer",
+        "-flags",
+        "low_delay",
+      ]
+    if use_mjpg_qsv and input_fourcc == "mjpeg":
+      qsv_device = os.getenv("WEBCAM_QSV_DEVICE", os.getenv("VAAPI_DEVICE", "/dev/dri/renderD128"))
+      cmd += [
+        "-init_hw_device",
+        f"qsv=hw:{qsv_device}",
+        "-filter_hw_device",
+        "hw",
+        "-c:v",
+        "mjpeg_qsv",
+      ]
+    cmd += [
+      "-f",
+      "v4l2",
+    ]
+    if not is_loopback_road:
+      cmd += [
+        "-pixel_format",
+        input_fourcc,
+        "-framerate",
+        str(self._requested_fps),
+      ]
+    cmd += [
+      "-video_size",
+      f"{self._requested_w}x{self._requested_h}",
+      "-i",
+      self.device_path,
+    ]
+    if vf is not None:
+      cmd += [
+        "-vf",
+        vf,
+      ]
+    output_pix_fmt = "bgr24" if self.ffmpeg_output == "bgr24" else "nv12"
+    cmd += [
+      "-pix_fmt",
+      output_pix_fmt,
+      "-f",
+      "rawvideo",
+      "pipe:1",
+    ]
+    self.ffmpeg_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=self._requested_w * self._requested_h * 3)
+
+  def _read_ffmpeg_nv12(self):
+    self._open_ffmpeg()
+    if self.ffmpeg_proc is None or self.ffmpeg_proc.stdout is None:
+      return
+    frame_size = self.w_int * self.h_int * 3 // 2
+    while True:
+      t0 = time.perf_counter() if self.profile else 0.0
+      data = self.ffmpeg_proc.stdout.read(frame_size)
+      read_ms = (time.perf_counter() - t0) * 1000.0 if self.profile else 0.0
+      if len(data) != frame_size:
+        break
+      if not self._raw_nv12_probed:
+        self._raw_nv12_probed = True
+        self._raw_nv12_active = True
+        print(f"[webcamerad:{self.cam_type_state}] raw_nv12=active")
+      payload = memoryview(data)
+      self._maybe_update_dynamic_exposure_nv12(payload)
+      if self.profile:
+        yield payload, {
+          "read_ms": read_ms,
+          "flip_ms": 0.0,
+          "convert_ms": 0.0,
+          "payload_ms": 0.0,
+        }
+      else:
+        yield payload, None
+
+  def _read_ffmpeg_bgr(self):
+    self._open_ffmpeg()
+    if self.ffmpeg_proc is None or self.ffmpeg_proc.stdout is None:
+      return
+    frame_size = self.w_int * self.h_int * 3
+    while True:
+      t0 = time.perf_counter() if self.profile else 0.0
+      data = self.ffmpeg_proc.stdout.read(frame_size)
+      read_ms = (time.perf_counter() - t0) * 1000.0 if self.profile else 0.0
+      if len(data) != frame_size:
+        break
+      if not self._raw_nv12_probed:
+        self._raw_nv12_probed = True
+        self._raw_nv12_active = False
+        print(f"[webcamerad:{self.cam_type_state}] raw_nv12=inactive")
+      frame = np.frombuffer(data, dtype=np.uint8).reshape((self.h_int, self.w_int, 3))
+      self._maybe_update_dynamic_exposure_bgr(frame)
+
+      flip_ms = 0.0
+      if self.flip_code is not None:
+        t1 = time.perf_counter() if self.profile else 0.0
+        frame = cv.flip(frame, self.flip_code)
+        flip_ms = (time.perf_counter() - t1) * 1000.0 if self.profile else 0.0
+
+      t2 = time.perf_counter() if self.profile else 0.0
+      yuv = self.bgr2nv12(frame)
+      convert_ms = (time.perf_counter() - t2) * 1000.0 if self.profile else 0.0
+      t3 = time.perf_counter() if self.profile else 0.0
+      payload = memoryview(yuv).cast('B')
+      payload_ms = (time.perf_counter() - t3) * 1000.0 if self.profile else 0.0
+      if self.profile:
+        yield payload, {
+          "read_ms": read_ms,
+          "flip_ms": flip_ms,
+          "convert_ms": convert_ms,
+          "payload_ms": payload_ms,
+        }
+      else:
+        yield payload, None
+
+  def read_frames(self):
+    if self.backend == "ffmpeg":
+      if self.ffmpeg_output == "bgr24":
+        yield from self._read_ffmpeg_bgr()
+      else:
+        yield from self._read_ffmpeg_nv12()
+      if self.ffmpeg_proc is not None:
+        self.ffmpeg_proc.terminate()
+        self.ffmpeg_proc.wait(timeout=2)
+        self.ffmpeg_proc = None
+      return
+
+    while True:
+      t0 = time.perf_counter() if self.profile else 0.0
+      ret, frame = self.cap.read()
+      read_ms = (time.perf_counter() - t0) * 1000.0 if self.profile else 0.0
+      if not ret:
+        break
+
+      if not self._raw_nv12_probed:
+        self._raw_nv12_probed = True
+        self._raw_nv12_active = self._is_nv12_frame(frame)
+        print(f"[webcamerad:{self.cam_type_state}] raw_nv12={'active' if self._raw_nv12_active else 'inactive'}")
+        if self.raw_nv12_enabled and self.flip_code is None and not self._raw_nv12_active:
+          # Backend did not expose raw NV12, restore default OpenCV BGR conversion.
+          self.cap.set(cv.CAP_PROP_CONVERT_RGB, 1)
+
+      if self._raw_nv12_active:
+        yuv = frame if frame.flags["C_CONTIGUOUS"] else np.ascontiguousarray(frame)
+        payload = memoryview(yuv).cast('B')
+        if self.profile:
+          yield payload, {
+            "read_ms": read_ms,
+            "flip_ms": 0.0,
+            "convert_ms": 0.0,
+            "payload_ms": 0.0,
+          }
+        else:
+          yield payload, None
+        continue
+
+      # Some backends keep delivering YUYV frames even after toggling CONVERT_RGB.
+      # Normalize to BGR before conversion to NV12.
+      if frame.ndim == 3 and frame.shape[2] == 2:
+        frame = cv.cvtColor(frame, cv.COLOR_YUV2BGR_YUY2)
+      elif frame.ndim == 2:
+        frame = cv.cvtColor(frame, cv.COLOR_GRAY2BGR)
+
+      self._maybe_update_dynamic_exposure_bgr(frame)
+
+      flip_ms = 0.0
+      if self.flip_code is not None:
+        t1 = time.perf_counter() if self.profile else 0.0
+        frame = cv.flip(frame, self.flip_code)
+        flip_ms = (time.perf_counter() - t1) * 1000.0 if self.profile else 0.0
+      t2 = time.perf_counter() if self.profile else 0.0
+      yuv = self.bgr2nv12(frame)
+      convert_ms = (time.perf_counter() - t2) * 1000.0 if self.profile else 0.0
+      # VisionIpcServer.send accepts a contiguous byte view, so avoid per-frame tobytes() copies.
+      t3 = time.perf_counter() if self.profile else 0.0
+      payload = memoryview(yuv).cast('B')
+      payload_ms = (time.perf_counter() - t3) * 1000.0 if self.profile else 0.0
+      if self.profile:
+        yield payload, {
+          "read_ms": read_ms,
+          "flip_ms": flip_ms,
+          "convert_ms": convert_ms,
+          "payload_ms": payload_ms,
+        }
+      else:
+        yield payload, None
+    self.cap.release()
