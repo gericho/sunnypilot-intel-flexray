@@ -93,9 +93,12 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
 
       encoders = build_encoders(buf_info);
 
-      // Only one thumbnail can be generated per camera stream
-      if (auto thumbnail_name = cam_info.encoder_infos[0].thumbnail_name) {
-        jpeg_encoder = std::make_unique<JpegEncoder>(thumbnail_name, buf_info.width / 4, buf_info.height / 4);
+      // Thumbnails on the PC/webcam path are not required for logging and have been observed
+      // to interfere with the road encoder around frame_id=100.
+      if (!Hardware::PC()) {
+        if (auto thumbnail_name = cam_info.encoder_infos[0].thumbnail_name) {
+          jpeg_encoder = std::make_unique<JpegEncoder>(thumbnail_name, buf_info.width / 4, buf_info.height / 4);
+        }
       }
     }
 
@@ -110,6 +113,10 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
           LOGW("encoderd recv-null stream=%s", cam_info.thread_name);
         }
         debug_null_recvs++;
+        if (!vipc_client.is_connected()) {
+          LOGE("encoderd reconnect stream=%s after vipc disconnect", cam_info.thread_name);
+          break;
+        }
         continue;
       }
       if (debug_recv_calls < 8) {
@@ -200,11 +207,11 @@ void encoderd_thread(const LogCameraInfo (&cameras)[N]) {
   }
 
   if (!streams.empty()) {
-    const bool disable_road = getenv("DISABLE_ROAD_RECORDING") != nullptr && atoi(getenv("DISABLE_ROAD_RECORDING")) == 1;
+    const bool disable_wide = getenv("DISABLE_WIDE_RECORDING") != nullptr && atoi(getenv("DISABLE_WIDE_RECORDING")) == 1;
     std::vector<std::thread> encoder_threads;
     for (auto stream : streams) {
-      if (disable_road && stream == VISION_STREAM_ROAD) {
-        LOGW("encoderd skipping road stream due to DISABLE_ROAD_RECORDING=1");
+      if (disable_wide && stream == VISION_STREAM_WIDE_ROAD) {
+        LOGW("encoderd skipping wide stream due to DISABLE_WIDE_RECORDING=1");
         continue;
       }
       auto it = std::find_if(std::begin(cameras), std::end(cameras),
