@@ -144,7 +144,7 @@ export_default FORCE_MODEL_RUNNER tinygrad
 export_default USE_ONNX 1
 export_default ORT_BACKEND openvino
 export ORT_OPENVINO_DEVICE=GPU
-export_default ORT_OPENVINO_FALLBACK_CPU 1
+export_default ORT_OPENVINO_FALLBACK_CPU 0
 export_default ORT_OPENVINO_DISABLE_ORT_OPT 1
 export_default ORT_OPENVINO_PERFORMANCE_HINT LATENCY
 export_default ORT_OPENVINO_EXECUTION_MODE PERFORMANCE
@@ -156,7 +156,8 @@ export MODEL_WARP_DIAG=1
 export MODEL_RAW_BUF_DIAG=1
 export_default ORT_OPENVINO_CACHE_DIR "$PWD/.cache/openvino_model_cache"
 
-export_default ENABLE_BMW_I3_SHADOW_LOGGER 0
+export_default ENABLE_BMW_I3_SHADOW_LOGGER 1
+export_default DISABLE_ROAD_RECORDING 1
 export_default BMW_I3_SHADOW_LOGGER_INTERVAL 0.2
 export_default BMW_I3_SHADOW_LOGGER_OUT /tmp/bmw_i3_shadow/rlog.jsonl
 export_default BMW_I3_SHADOW_LOGGER_ERR /tmp/bmw_i3_shadow_logger.stderr

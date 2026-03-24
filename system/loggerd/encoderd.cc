@@ -57,8 +57,22 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
   util::set_thread_name(cam_info.thread_name);
 
   std::vector<std::unique_ptr<Encoder>> encoders;
+  std::vector<Encoder*> retired_encoders;
   VisionIpcClient vipc_client = VisionIpcClient("camerad", cam_info.stream_type, false);
   int debug_encode_calls = 0;
+
+  auto build_encoders = [&](const VisionBuf &buf_info) {
+    std::vector<std::unique_ptr<Encoder>> built;
+    for (const auto &encoder_info : cam_info.encoder_infos) {
+      if (disable_qcamera() && strcmp(encoder_info.publish_name, "qRoadEncodeData") == 0) {
+        continue;
+      }
+      auto e = std::make_unique<Encoder>(encoder_info, buf_info.width, buf_info.height);
+      e->encoder_open();
+      built.push_back(std::move(e));
+    }
+    return built;
+  };
 
   std::unique_ptr<JpegEncoder> jpeg_encoder;
 
@@ -77,13 +91,7 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
       LOGW("encoder %s init %zux%zu", cam_info.thread_name, buf_info.width, buf_info.height);
       assert(buf_info.width > 0 && buf_info.height > 0);
 
-      for (const auto &encoder_info : cam_info.encoder_infos) {
-        if (disable_qcamera() && strcmp(encoder_info.publish_name, "qRoadEncodeData") == 0) {
-          continue;
-        }
-        auto &e = encoders.emplace_back(new Encoder(encoder_info, buf_info.width, buf_info.height));
-        e->encoder_open();
-      }
+      encoders = build_encoders(buf_info);
 
       // Only one thumbnail can be generated per camera stream
       if (auto thumbnail_name = cam_info.encoder_infos[0].thumbnail_name) {
@@ -137,9 +145,17 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
       // do rotation if required
       const int frames_per_seg = SEGMENT_LENGTH * cam_info.fps;
       if (cur_seg >= 0 && extra.frame_id >= ((cur_seg + 1) * frames_per_seg) + s->start_frame_id) {
-        for (auto &e : encoders) {
-          e->encoder_close();
-          e->encoder_open();
+        const VisionBuf &buf_info = vipc_client.buffers[0];
+        if (Hardware::PC()) {
+          LOGW("encoderd rotate rebuild stream=%s seg=%d frame_id=%d", cam_info.thread_name, cur_seg + 1, extra.frame_id);
+          for (auto &e : encoders) retired_encoders.push_back(e.release());
+          encoders.clear();
+          encoders = build_encoders(buf_info);
+        } else {
+          for (auto &e : encoders) {
+            e->encoder_close();
+            e->encoder_open();
+          }
         }
         ++cur_seg;
       }
@@ -184,8 +200,13 @@ void encoderd_thread(const LogCameraInfo (&cameras)[N]) {
   }
 
   if (!streams.empty()) {
+    const bool disable_road = getenv("DISABLE_ROAD_RECORDING") != nullptr && atoi(getenv("DISABLE_ROAD_RECORDING")) == 1;
     std::vector<std::thread> encoder_threads;
     for (auto stream : streams) {
+      if (disable_road && stream == VISION_STREAM_ROAD) {
+        LOGW("encoderd skipping road stream due to DISABLE_ROAD_RECORDING=1");
+        continue;
+      }
       auto it = std::find_if(std::begin(cameras), std::end(cameras),
                              [stream](auto &cam) { return cam.stream_type == stream; });
       assert(it != std::end(cameras));

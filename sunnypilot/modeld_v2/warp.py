@@ -126,7 +126,7 @@ class Warp:
           return frames_to_tensor(yuv, MODEL_W, MODEL_H)
         self._prep_cache[(cam_w, cam_h, bufs[road].stride, bufs[road].uv_offset)] = frame_prepare
       update_both_imgs = make_update_both_imgs(self._prep_cache[(cam_w, cam_h, bufs[road].stride, bufs[road].uv_offset)], MODEL_W, MODEL_H)
-      self.jit_cache[key] = update_both_imgs
+      self.jit_cache[key] = TinyJit(update_both_imgs, prune=True)
 
     yuv_size = road_arr.size if 'road_arr' in locals() else cam_w * cam_h * 3 // 2
 
@@ -145,7 +145,6 @@ class Warp:
     img_transform = Tensor(self.transforms_np['img']).realize()
     big_img_transform = Tensor(self.transforms_np['big_img']).realize()
 
-    Device.default.synchronize()
     res = self.jit_cache[key](
       self.full_buffers['img'], road_blob, img_transform,
       self.full_buffers['big_img'], wide_blob, big_img_transform,
