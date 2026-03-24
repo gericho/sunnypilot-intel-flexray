@@ -7,12 +7,343 @@ from pathlib import Path
 
 import cereal.messaging as messaging
 from openpilot.common.params import Params
+from opendbc.can.packer import CANPacker
+from opendbc.car import Bus
+from opendbc.car.bmw_i3.values import CAR, DBC
 
 POLL_S = 0.05
 LAT_PHASE_THRESHOLDS = {
   60: 112.083,
   24: 80.833,
   8: 149.5,
+}
+LONG_59_CENTER_WB = 32777
+LONG_59_CENTER_WC = 32767
+LONG_54_CENTER_WB = 65025
+LONG_54_CENTER_WC = 7
+
+# Stock-derived templates from 000003c1--ac22d1c806.
+# These are not a final TX implementation; they are a route-fit shadow model
+# so the next compare is against the right payload family instead of center words.
+LONG_TEMPLATES = {
+  ("ACC_ARMED", "positive"): {
+    54: "3000000000000000000000000000000000",
+    59: "0a80fe4d750a7e2fffffffffffffffffff",
+    "branch": 59,
+    "mode": "positive_or_coast",
+  },
+  ("ACC_ARMED", "neutral"): {
+    54: "2bfffec062846d31b53bc622223dd553ff",
+    59: "2b00000000000000000000000000000000",
+    "branch": 59,
+    "mode": "positive_or_coast",
+  },
+  ("ACC_ARMED", "blended"): {
+    54: "2bfffec062846d31b53bc622223dd553ff",
+    59: "2b00000000000000000000000000000000",
+    "branch": 54,
+    "mode": "blended",
+  },
+  ("MANAGED", "neutral"): {
+    54: "1bfffa46f42d00c046fe582222811338ff",
+    59: "1b00000000000000000000000000000000",
+    "branch": 59,
+    "mode": "positive_or_coast",
+  },
+  ("MANAGED", "positive"): {
+    54: "0a00000000000000000000000000000000",
+    59: "0a55fb777c9b7f2fffffffffffffffffff",
+    "branch": 59,
+    "mode": "positive_or_coast",
+  },
+  ("MANAGED", "blended"): {
+    54: "3bfff3a3301d3cd5806a922222644446ff",
+    59: "12a3f9f37fff7f2fffffffffffffffffff",
+    "branch": 54,
+    "mode": "blended",
+  },
+  ("MANAGED", "negative"): {
+    54: "3bfff3a3301d3cd5806a922222644446ff",
+    59: "1e91faed7fff7f2fffffffffffffffffff",
+    "branch": 54,
+    "mode": "negative",
+  },
+  ("UNKNOWN", "positive"): {
+    54: "2dfc2701fe07007efffffffffffffff594",
+    59: "2055f37a8031802fffffffffffffffffff",
+    "branch": 59,
+    "mode": "positive_or_coast",
+  },
+  ("UNKNOWN", "neutral"): {
+    54: "2dfc2701fe07007efffffffffffffff594",
+    59: "2d00000000000000000000000000000000",
+    "branch": 59,
+    "mode": "positive_or_coast",
+  },
+  ("UNKNOWN", "blended"): {
+    54: "07fffe8ad05ddced1d8b2f2222e88eeeff",
+    59: "16c6f4ef7fff7f2fffffffffffffffffff",
+    "branch": 54,
+    "mode": "blended",
+  },
+}
+
+LONG_PHASE_TEMPLATES = {
+  ("ACC_ARMED", "positive"): {
+    54: {
+      "0a": "0a00000000000000000000000000000000",
+      "31": "31fe2701ff07007efffffffffffffff268",
+      "0b": "0bfffc743d4e4a9590c5a32222b99bbbff",
+      "07": "07fff11ca60db37c0528192222077110ff",
+      "17": "17fffc6fad55bae10c84202222eff11eff",
+      "2b": "2bfff2e391999e2bf199042222388ee3ff",
+      "0f": "0ffff0d595faa21ef5fa082222caaeecff",
+      "38": "3800000000000000000000000000000000",
+      "20": "2000000000000000000000000000000000",
+      "26": "2600000000000000000000000000000000",
+      "30": "3000000000000000000000000000000000",
+      "28": "2800000000000000000000000000000000",
+      "14": "1400000000000000000000000000000000",
+      "1c": "1c00000000000000000000000000000000",
+      "0e": "0e00000000000000000000000000000000",
+      "34": "3400000000000000000000000000000000",
+    },
+    59: {
+      "0a": "0a80fe4d750a7e2fffffffffffffffffff",
+      "30": "306afa5c7eff7f2fffffffffffffffffff",
+      "20": "2058faf07ffe7f2fffffffffffffffffff",
+      "28": "2877f2037f057f2fffffffffffffffffff",
+      "14": "14dcf5837c437d2fffffffffffffffffff",
+      "38": "388ff4de7dcd7f2fffffffffffffffffff",
+      "19": "1900000000000000000000000000000000",
+      "3f": "3f00000000000000000000000000000000",
+      "2b": "2b00000000000000000000000000000000",
+      "1f": "1f00000000000000000000000000000000",
+      "17": "1700000000000000000000000000000000",
+      "31": "3100000000000000000000000000000000",
+      "0f": "0f00000000000000000000000000000000",
+      "07": "0700000000000000000000000000000000",
+      "0b": "0b00000000000000000000000000000000",
+    },
+  },
+  ("MANAGED", "neutral"): {
+    54: {
+      "3d": "3dff2701ff07007ffffffffffffffffbc3",
+      "18": "1800000000000000000000000000000000",
+      "1e": "1e00000000000000000000000000000000",
+      "03": "03fff6ec06d2129759d46b2222955559ff",
+      "2b": "2bfff3b6be97cab210e5222222888cc8ff",
+      "1c": "1c00000000000000000000000000000000",
+      "22": "2200000000000000000000000000000000",
+      "1b": "1bfffa46f42d00c046fe582222811338ff",
+      "23": "23fffeaf2b46383b8569982222b2266bff",
+      "1f": "1ffff78d78b8856ed532e92222911aa9ff",
+      "1d": "1d022802fe07007ffffffffffffffff751",
+      "0f": "0f00000000000000000000000000000000",
+      "27": "2700000000000000000000000000000000",
+      "2f": "2f00000000000000000000000000000000",
+      "0b": "0b00000000000000000000000000000000",
+      "2a": "2a00000000000000000000000000000000",
+      "32": "3200000000000000000000000000000000",
+      "37": "37fff844d023dc622295342222aeeeeaff",
+      "35": "35ff2701ff07007ffffffffffffffffbc3",
+      "30": "3000000000000000000000000000000000",
+      "06": "0600000000000000000000000000000000",
+      "12": "1200000000000000000000000000000000",
+      "28": "2800000000000000000000000000000000",
+      "3e": "3e00000000000000000000000000000000",
+      "20": "2000000000000000000000000000000000",
+      "02": "0200000000000000000000000000000000",
+      "16": "1600000000000000000000000000000000",
+    },
+    59: {
+      "18": "18ccf00d80ff7f2fffffffffffffffffff",
+      "1e": "1e18f11280ff7f2fffffffffffffffffff",
+      "03": "0300000000000000000000000000000000",
+      "2b": "2b00000000000000000000000000000000",
+      "1c": "1cd6f00e80cc7f2fffffffffffffffffff",
+      "22": "22a5feee7ffe7f2fffffffffffffffffff",
+      "1b": "1b00000000000000000000000000000000",
+      "1d": "1d00000000000000000000000000000000",
+      "2a": "2a02f2e37ffe7f2fffffffffffffffffff",
+      "32": "3228f90080ff7f2fffffffffffffffffff",
+      "37": "3700000000000000000000000000000000",
+      "35": "3500000000000000000000000000000000",
+      "30": "30a9f4e480ff7f2fffffffffffffffffff",
+      "28": "2886f78d7fff7f2fffffffffffffffffff",
+      "06": "069cf10380ff7f2fffffffffffffffffff",
+      "0f": "0f00000000000000000000000000000000",
+      "27": "2700000000000000000000000000000000",
+      "1f": "1f00000000000000000000000000000000",
+      "23": "2300000000000000000000000000000000",
+      "2f": "2f00000000000000000000000000000000",
+      "0b": "0b00000000000000000000000000000000",
+      "3d": "3d00000000000000000000000000000000",
+      "3f": "3f00000000000000000000000000000000",
+      "3b": "3b00000000000000000000000000000000",
+    },
+  },
+  ("MANAGED", "positive"): {
+    54: {
+      "0e": "0e00000000000000000000000000000000",
+      "18": "1800000000000000000000000000000000",
+      "08": "0800000000000000000000000000000000",
+      "25": "25fe2701ff07007efffffffffffffff14f",
+      "20": "2000000000000000000000000000000000",
+      "2a": "2a00000000000000000000000000000000",
+    },
+    59: {
+      "0e": "0eaef37e7fff7f2fffffffffffffffffff",
+      "18": "1818f8997fff7f2fffffffffffffffffff",
+      "08": "0814f4fd7f31802fffffffffffffffffff",
+      "25": "2500000000000000000000000000000000",
+      "20": "200af1f97fff7f2fffffffffffffffffff",
+      "2a": "2abaf80280ff7f2fffffffffffffffffff",
+    },
+  },
+  ("MANAGED", "blended"): {
+    54: {
+      "20": "2000000000000000000000000000000000",
+      "36": "3600000000000000000000000000000000",
+      "2d": "2dfe2701fe07007efffffffffffffffb44",
+      "0e": "0e00000000000000000000000000000000",
+    },
+    59: {
+      "20": "202df0ff7fff7f2fffffffffffffffffff",
+      "36": "3610fefc7fff7f2fffffffffffffffffff",
+      "2d": "2d00000000000000000000000000000000",
+      "0e": "0e31f15a7f30802fffffffffffffffffff",
+    },
+  },
+  ("OFF", "positive"): {
+    54: {
+      "35": "35ca2704fc07007dfffffffffffffffb35",
+      "13": "13fffb3f9c39a8e3ed280022229cc889ff",
+      "26": "2600000000000000000000000000000000",
+      "02": "0200000000000000000000000000000000",
+      "04": "0400000000000000000000000000000000",
+      "16": "1600000000000000000000000000000000",
+      "0a": "0a00000000000000000000000000000000",
+      "06": "0600000000000000000000000000000000",
+      "38": "3800000000000000000000000000000000",
+      "30": "3000000000000000000000000000000000",
+      "0f": "0ffff092b991c5760ff7212222c6633cff",
+      "3b": "3bfff81ebf37cb1215ab2722225cc555ff",
+      "2d": "2df327020108007efffffffffffffff5c8",
+      "21": "21062802ff07007ffffffffffffffff679",
+      "23": "23fff75fba62c64510c8222222100441ff",
+      "2c": "2c00000000000000000000000000000000",
+      "0c": "0c00000000000000000000000000000000",
+      "00": "0000000000000000000000000000000000",
+    },
+    59: {
+      "35": "3500000000000000000000000000000000",
+      "13": "1300000000000000000000000000000000",
+      "26": "261df7577dec822fffffffffffffffffff",
+      "02": "022bfa56809a7f2fffffffffffffffffff",
+      "04": "0456f782816d7e2fffffffffffffffffff",
+      "16": "165df4596aff7f2fffffffffffffffffff",
+      "0a": "0a01f2e86d97882fffffffffffffffffff",
+      "06": "0610f6047ca7852fffffffffffffffffff",
+      "38": "38d3f93280ff7f2fffffffffffffffffff",
+      "2b": "2b00000000000000000000000000000000",
+      "23": "2300000000000000000000000000000000",
+      "3b": "3b00000000000000000000000000000000",
+      "30": "3074f60382ff7f2fffffffffffffffffff",
+      "0f": "0f00000000000000000000000000000000",
+      "2d": "2d00000000000000000000000000000000",
+      "21": "2100000000000000000000000000000000",
+      "00": "00cbfa7681c7802fffffffffffffffffff",
+      "17": "1700000000000000000000000000000000",
+      "18": "189ff306833b7e2fffffffffffffffffff",
+    },
+  },
+  ("OFF", "blended"): {
+    54: {
+      "21": "21f22702fc07007efffffffffffffffc86",
+      "35": "35012801fe07007ffffffffffffffff145",
+    },
+    59: {
+      "21": "2100000000000000000000000000000000",
+      "35": "3500000000000000000000000000000000",
+    },
+  },
+  ("OFF", "negative"): {
+    54: {
+      "16": "1600000000000000000000000000000000",
+      "17": "17fffd87b87fc4690ee1202222899ff8ff",
+      "3b": "3bfff587b87fc4690ee12022223cc113ff",
+      "37": "37fffd87b87fc4690ee12022227aa007ff",
+      "23": "23fff989b87fc46b0ee1202222700227ff",
+      "18": "1800000000000000000000000000000000",
+      "3e": "3e00000000000000000000000000000000",
+      "09": "0906480afe07007ffffffffffffffffc30",
+      "30": "3000000000000000000000000000000000",
+      "32": "3200000000000000000000000000000000",
+      "2e": "2e00000000000000000000000000000000",
+      "36": "3600000000000000000000000000000000",
+    },
+    59: {
+      "16": "161cf19282ff7f2fffffffffffffffffff",
+      "17": "1700000000000000000000000000000000",
+      "3b": "3b00000000000000000000000000000000",
+      "37": "3700000000000000000000000000000000",
+      "23": "2300000000000000000000000000000000",
+      "18": "18def3a482ff7f2fffffffffffffffffff",
+      "3e": "3e9afb9282ff7f2fffffffffffffffffff",
+      "09": "0900000000000000000000000000000000",
+    },
+  },
+  ("TRANSITION", "positive"): {
+    54: {
+      "2a": "2a00000000000000000000000000000000",
+      "28": "2800000000000000000000000000000000",
+      "06": "0600000000000000000000000000000000",
+    },
+    59: {
+      "2a": "2af7f9cb7e94802fffffffffffffffffff",
+      "28": "287dfc707fff7f2fffffffffffffffffff",
+      "06": "0611fa677fff7f2fffffffffffffffffff",
+    },
+  },
+  ("UNKNOWN", "positive"): {
+    54: {
+      "3f": "3ffff13cb71bc32909591b2222b22bbbff",
+      "09": "09002802ff07007ffffffffffffffff845",
+      "18": "1800000000000000000000000000000000",
+      "39": "39ff2701ff07007ffffffffffffffffbc3",
+      "25": "25fe2701ff07007efffffffffffffff052",
+      "0d": "0dff2701fe07007ffffffffffffffff83d",
+      "03": "03fff3f3a6d0b2b9f8e80a2222f4499fff",
+      "20": "2000000000000000000000000000000000",
+      "34": "3400000000000000000000000000000000",
+      "21": "21fe2701ff07007efffffffffffffffb9d",
+    },
+    59: {
+      "3f": "3f00000000000000000000000000000000",
+      "09": "0900000000000000000000000000000000",
+      "18": "18a7fa3180ff7f2fffffffffffffffffff",
+      "39": "3900000000000000000000000000000000",
+      "25": "2500000000000000000000000000000000",
+      "0d": "0d00000000000000000000000000000000",
+      "03": "0300000000000000000000000000000000",
+      "20": "20e9fb0c80fe7f2fffffffffffffffffff",
+      "34": "34fcf60480cc7f2fffffffffffffffffff",
+      "21": "2100000000000000000000000000000000",
+    },
+  },
+  ("UNKNOWN", "neutral"): {
+    54: {
+      "21": "21fe2701fe07007efffffffffffffff7d8",
+      "2c": "2c00000000000000000000000000000000",
+      "3f": "3ffff1fa13e01fc46604792222f3366fff",
+    },
+    59: {
+      "21": "2100000000000000000000000000000000",
+      "2c": "2ca4fb0080ff7f2fffffffffffffffffff",
+      "3f": "3f00000000000000000000000000000000",
+    },
+  },
 }
 
 
@@ -39,6 +370,62 @@ def infer_long_intent(gas_pct, brake_pct):
   if brake_pct > gas_pct + 0.03:
     return "negative", min(1.0, brake_pct)
   return "blended", min(1.0, abs(gas_pct - brake_pct) + max(gas_pct, brake_pct) * 0.5)
+
+
+def parse_word_fields(payload_hex):
+  dat = bytes.fromhex(payload_hex)
+  return {
+    "wb": dat[0] | (dat[1] << 8) if len(dat) >= 2 else 0,
+    "wc": dat[2] | (dat[3] << 8) if len(dat) >= 4 else 0,
+  }
+
+
+def merge_phase_byte(template_hex, stock_hex):
+  if not stock_hex or len(stock_hex) < 2:
+    return template_hex
+  return stock_hex[:2] + template_hex[2:]
+
+
+def apply_phase_template(template_hex, stock_hex, bucket, branch):
+  if not stock_hex or len(stock_hex) < 2:
+    return template_hex
+  phase = stock_hex[:2]
+  override = LONG_PHASE_TEMPLATES.get(bucket, {}).get(branch, {}).get(phase)
+  if override is not None:
+    return override
+  return merge_phase_byte(template_hex, stock_hex)
+
+
+def shadow_long_tx_hint(desired_accel, acc_mode, long_intent):
+  desired_accel = float(desired_accel)
+  template = LONG_TEMPLATES.get((acc_mode, long_intent))
+  if template is None:
+    template = LONG_TEMPLATES.get(("UNKNOWN", long_intent))
+  if template is None:
+    if desired_accel < -0.05:
+      template = {
+        54: "1c00000000000000000000000000000000",
+        59: "1b00000000000000000000000000000000",
+        "branch": 54,
+        "mode": "negative",
+      }
+    else:
+      template = {
+        54: "1c00000000000000000000000000000000",
+        59: "1cbcf1b590dc7c2fffffffffffffffffff",
+        "branch": 59,
+        "mode": "positive_or_coast",
+      }
+  f54 = parse_word_fields(template[54])
+  f59 = parse_word_fields(template[59])
+  return {
+    "tx_mode": template["mode"],
+    "tx_branch": template["branch"],
+    "tx_target_wb": f54["wb"] if template["branch"] == 54 else f59["wb"],
+    "tx_target_wc": f54["wc"] if template["branch"] == 54 else f59["wc"],
+    "tx54": template[54],
+    "tx59": template[59],
+  }
 
 
 def mode_from_state(gate, state):
@@ -141,6 +528,7 @@ def main() -> None:
   root = Path(args.root)
   fallback_path = Path(args.out)
   fallback_path.parent.mkdir(parents=True, exist_ok=True)
+  packer = CANPacker(DBC[CAR.BMW_I3_EXPERIMENTAL][Bus.pt])
 
   carstate_sock = messaging.sub_sock("carState", addr=args.addr, conflate=True)
   panda_sock = messaging.sub_sock("pandaStates", addr=args.addr, conflate=True)
@@ -278,7 +666,6 @@ def main() -> None:
       gas_ema = ema(gas_ema, gas217_pct)
       brake_ema = ema(brake_ema, brake239_pct)
       long_mode, long_conf = infer_long_intent(gas_ema, brake_ema)
-
       lat_phase = None
       lat_b1 = None
       lat_b2 = None
@@ -303,6 +690,11 @@ def main() -> None:
         if len(d135) > 6:
           state135 = d135[5] | (d135[6] << 8)
       acc_mode = mode_from_state(gate131, state135)
+      desired_accel = 0.0 if car_control is None else float(car_control.actuators.accel)
+      shadow_long = shadow_long_tx_hint(desired_accel, acc_mode, long_mode)
+      bucket = (acc_mode, long_mode)
+      shadow_54_bytes = apply_phase_template(shadow_long["tx54"], fr1_54, bucket, 54)
+      shadow_59_bytes = apply_phase_template(shadow_long["tx59"], fr1_59, bucket, 59)
       acc_active = acc_mode in ("ACC_ARMED", "MANAGED")
       lat_active = (acc_mode == "MANAGED") and bool(lat_helper_active)
       tja_active = lat_active
@@ -331,6 +723,13 @@ def main() -> None:
         "steer770_raw": steer770_raw,
         "stock_long_intent": long_mode,
         "stock_long_intent_confidence": long_conf,
+        "shadow_long_desired_accel": desired_accel,
+        "shadow_long_tx_mode": shadow_long["tx_mode"],
+        "shadow_long_tx_branch": shadow_long["tx_branch"],
+        "shadow_long_tx_target_wb": shadow_long["tx_target_wb"],
+        "shadow_long_tx_target_wc": shadow_long["tx_target_wc"],
+        "shadow_long_tx54": shadow_54_bytes,
+        "shadow_long_tx59": shadow_59_bytes,
         "stock_acc_gate131": gate131,
         "stock_acc_state135": state135,
         "stock_acc_mode": acc_mode,
@@ -367,6 +766,14 @@ def main() -> None:
           "op_desired_curvature": float(controls_state.desiredCurvature),
           "op_force_decel": bool(controls_state.forceDecel),
         })
+        try:
+          row["op_v_cruise_cluster_kph"] = float(controls_state.vCruiseCluster)
+        except Exception:
+          pass
+        try:
+          row["op_v_cruise_kph"] = float(controls_state.vCruise)
+        except Exception:
+          pass
         lat_state = controls_state.lateralControlState.which()
         row["op_lat_control_state"] = lat_state
         if lat_state == "angleState":
@@ -488,6 +895,10 @@ def main() -> None:
           "cruiseStandstill": bool(cs.cruiseState.standstill),
           "standstill": bool(cs.standstill),
         })
+        try:
+          row["buttonEvents"] = [{"type": str(be.type), "pressed": bool(be.pressed)} for be in cs.buttonEvents]
+        except Exception:
+          row["buttonEvents"] = []
 
       out_file.write(json.dumps(row, separators=(",", ":")) + "\n")
       last_write = now
