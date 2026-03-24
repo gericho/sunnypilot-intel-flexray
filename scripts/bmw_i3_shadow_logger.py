@@ -346,6 +346,143 @@ LONG_PHASE_TEMPLATES = {
   },
 }
 
+# Fine-state templates derived from route-backed shadow logs. These are more
+# stable than coarse (mode,intent) buckets for long payload families.
+LONG_FINE_PHASE_TEMPLATES = {
+  "ACC_ARMED_POSITIVE_PULL": {
+    54: {
+      "0b": "0bfff915be8bd4d04ab26a2222088000ff",
+      "34": "3400000000000000000000000000000000",
+      "1c": "1c00000000000000000000000000000000",
+      "11": "11f12702ff07007efffffffffffffffaf3",
+      "07": "07fff376b9eecf224607662222655ff6ff",
+      "3b": "3bfffaf8100427769cdfbb2222feebbfff",
+      "33": "33fff90d22cb37adadcccc2222faaddfff",
+      "1d": "1df62702fe07007efffffffffffffff144",
+    },
+    59: {
+      "0b": "0b00000000000000000000000000000000",
+      "34": "347cf74b7dff7f2fffffffffffffffffff",
+      "1c": "1c12fe357fc0812fffffffffffffffffff",
+      "11": "1100000000000000000000000000000000",
+      "07": "0700000000000000000000000000000000",
+      "3b": "3b00000000000000000000000000000000",
+      "33": "3300000000000000000000000000000000",
+      "1d": "1d00000000000000000000000000000000",
+    },
+  },
+  "ACC_ARMED_POSITIVE_LOW": {
+    54: {
+      "17": "17fff10c317246c5bc90db2222accffaff",
+      "37": "37fff41dbb93d1f24388632222dbb44dff",
+      "39": "39f92701ff07007efffffffffffffff6bd",
+      "2f": "2ffffe9407ed1d0393b7b22222f88aafff",
+    },
+    59: {
+      "17": "1700000000000000000000000000000000",
+      "37": "3700000000000000000000000000000000",
+      "39": "3900000000000000000000000000000000",
+      "2f": "2f00000000000000000000000000000000",
+    },
+  },
+  "ACC_ARMED_NEGATIVE_BRAKE_HOLD": {
+    54: {
+      "3d": "3d0c480af507007ffffffffffffffff1f2",
+    },
+    59: {
+      "3d": "3d00000000000000000000000000000000",
+    },
+  },
+  "MANAGED_NEUTRAL_IDLE": {
+    54: {
+      "31": "31fe2701fe07007efffffffffffffff196",
+      "2b": "2bfff82d88989e87145c342222577995ff",
+      "07": "07fffa51a8c2bede34be542222855cc8ff",
+      "32": "3200000000000000000000000000000000",
+      "16": "1600000000000000000000000000000000",
+      "0a": "0a00000000000000000000000000000000",
+      "25": "25fe2701fe07007efffffffffffffffc17",
+      "1d": "1dfd2701fe07007efffffffffffffffe60",
+      "0d": "0dff2701fe07007ffffffffffffffff1c8",
+      "2a": "2a00000000000000000000000000000000",
+      "24": "2400000000000000000000000000000000",
+      "3c": "3c00000000000000000000000000000000",
+      "2e": "2e00000000000000000000000000000000",
+      "26": "2600000000000000000000000000000000",
+      "1c": "1c00000000000000000000000000000000",
+      "10": "1000000000000000000000000000000000",
+      "22": "2200000000000000000000000000000000",
+      "05": "05002801fe07007ffffffffffffffff17e",
+      "33": "33fffed4ae4cc5653b4a5b22229bbdd9ff",
+      "15": "15fe2701ff07007efffffffffffffffcce",
+      "3d": "3dff2701fe07007ffffffffffffffff83d",
+      "30": "3000000000000000000000000000000000",
+      "2d": "2dff2701ff07007ffffffffffffffff32b",
+      "28": "2800000000000000000000000000000000",
+      "1e": "1e00000000000000000000000000000000",
+      "18": "1800000000000000000000000000000000",
+      "02": "0200000000000000000000000000000000",
+      "2f": "2ffff4695f2476abe99e092222588005ff",
+      "29": "29ff2701ff07007ffffffffffffffffade",
+      "1b": "1bfffbc8e48dfb026eed8d22226dd886ff",
+      "0f": "0ffff44b32024921bc0ddc2222877dd8ff",
+      "21": "21ff2701ff07007ffffffffffffffff642",
+      "3a": "3a00000000000000000000000000000000",
+      "36": "3600000000000000000000000000000000",
+      "14": "1400000000000000000000000000000000",
+      "12": "1200000000000000000000000000000000",
+      "0b": "0bfffdfca39dbacf2eb34e2222666446ff",
+      "06": "0600000000000000000000000000000000",
+      "04": "0400000000000000000000000000000000",
+    },
+    59: {
+      "31": "3100000000000000000000000000000000",
+      "2b": "2b00000000000000000000000000000000",
+      "07": "0700000000000000000000000000000000",
+      "16": "160ff4e47fff7f2fffffffffffffffffff",
+      "32": "3253f9c67fff7f2fffffffffffffffffff",
+      "37": "3700000000000000000000000000000000",
+      "01": "0100000000000000000000000000000000",
+      "25": "2500000000000000000000000000000000",
+      "1d": "1d00000000000000000000000000000000",
+      "0a": "0ab6f70980ff7f2fffffffffffffffffff",
+      "0d": "0d00000000000000000000000000000000",
+      "2a": "2a5cfad67fcd7f2fffffffffffffffffff",
+      "39": "3900000000000000000000000000000000",
+      "23": "2300000000000000000000000000000000",
+      "24": "24a2f7ba7fff7f2fffffffffffffffffff",
+      "3c": "3c10f9af7fff7f2fffffffffffffffffff",
+      "26": "262af67880ff7f2fffffffffffffffffff",
+      "1c": "1cb2f1a27fff7f2fffffffffffffffffff",
+      "10": "1032f8dd7fff7f2fffffffffffffffffff",
+      "2e": "2e7df3cb7fff7f2fffffffffffffffffff",
+      "33": "3300000000000000000000000000000000",
+      "27": "2700000000000000000000000000000000",
+      "15": "1500000000000000000000000000000000",
+      "05": "0500000000000000000000000000000000",
+      "22": "22c0f7907fff7f2fffffffffffffffffff",
+      "3d": "3d00000000000000000000000000000000",
+      "2f": "2f00000000000000000000000000000000",
+      "2d": "2d00000000000000000000000000000000",
+      "29": "2900000000000000000000000000000000",
+      "1b": "1b00000000000000000000000000000000",
+      "18": "18b1f9cd7fcd7f2fffffffffffffffffff",
+      "0f": "0f00000000000000000000000000000000",
+      "02": "0294f20f80ff7f2fffffffffffffffffff",
+      "28": "2840feef7fff7f2fffffffffffffffffff",
+      "30": "30a8f40b80ff7f2fffffffffffffffffff",
+      "1e": "1e1ff2fc7fff7f2fffffffffffffffffff",
+      "36": "364af7f27fff7f2fffffffffffffffffff",
+      "14": "14a2f6a77fff7f2fffffffffffffffffff",
+      "06": "06cefd078031802fffffffffffffffffff",
+      "04": "0415fd397f377f2fffffffffffffffffff",
+      "3a": "3a8af22a80ff7f2fffffffffffffffffff",
+      "21": "2100000000000000000000000000000000",
+      "0b": "0b00000000000000000000000000000000",
+    },
+  },
+}
+
 
 def latest(sock):
   msgs = messaging.drain_sock(sock, wait_for_one=False)
@@ -386,10 +523,14 @@ def merge_phase_byte(template_hex, stock_hex):
   return stock_hex[:2] + template_hex[2:]
 
 
-def apply_phase_template(template_hex, stock_hex, bucket, branch):
+def apply_phase_template(template_hex, stock_hex, bucket, branch, fine_state=None):
   if not stock_hex or len(stock_hex) < 2:
     return template_hex
   phase = stock_hex[:2]
+  if fine_state is not None:
+    override = LONG_FINE_PHASE_TEMPLATES.get(fine_state, {}).get(branch, {}).get(phase)
+    if override is not None:
+      return override
   override = LONG_PHASE_TEMPLATES.get(bucket, {}).get(branch, {}).get(phase)
   if override is not None:
     return override
@@ -440,6 +581,54 @@ def mode_from_state(gate, state):
   if state == 26850:
     return "TRANSITION"
   return "UNKNOWN"
+
+
+def fine_long_state(acc_mode, long_intent, gas_ema, brake_ema, fr1_54, fr1_59):
+  gas = 0.0 if gas_ema is None else float(gas_ema)
+  brake = 0.0 if brake_ema is None else float(brake_ema)
+  phase = ""
+  if fr1_59:
+    phase = fr1_59[:2]
+  elif fr1_54:
+    phase = fr1_54[:2]
+
+  gas_bin = round(gas / 0.05) * 0.05
+  brake_bin = round(brake / 0.05) * 0.05
+
+  if acc_mode == "ACC_ARMED" and long_intent == "negative" and phase == "3d":
+    return "ACC_ARMED_NEGATIVE_BRAKE_HOLD", gas_bin, brake_bin
+  if acc_mode == "ACC_ARMED" and long_intent == "positive":
+    if gas_bin >= 0.35:
+      return "ACC_ARMED_POSITIVE_PULL", gas_bin, brake_bin
+    return "ACC_ARMED_POSITIVE_LOW", gas_bin, brake_bin
+  if acc_mode == "ACC_ARMED" and long_intent == "neutral":
+    return "ACC_ARMED_NEUTRAL", gas_bin, brake_bin
+  if acc_mode == "ACC_ARMED" and long_intent == "blended":
+    return "ACC_ARMED_BLENDED", gas_bin, brake_bin
+
+  if acc_mode == "MANAGED" and long_intent == "neutral":
+    if brake_bin <= 0.0 and gas_bin <= 0.0:
+      return "MANAGED_NEUTRAL_IDLE", gas_bin, brake_bin
+    return "MANAGED_NEUTRAL_EDGE", gas_bin, brake_bin
+  if acc_mode == "MANAGED" and long_intent == "positive":
+    return "MANAGED_POSITIVE", gas_bin, brake_bin
+  if acc_mode == "MANAGED" and long_intent == "blended":
+    return "MANAGED_BLENDED", gas_bin, brake_bin
+  if acc_mode == "MANAGED" and long_intent == "negative":
+    return "MANAGED_NEGATIVE", gas_bin, brake_bin
+
+  if acc_mode == "OFF" and long_intent == "positive":
+    return "OFF_POSITIVE", gas_bin, brake_bin
+  if acc_mode == "OFF" and long_intent == "negative":
+    return "OFF_NEGATIVE", gas_bin, brake_bin
+  if acc_mode == "OFF" and long_intent == "blended":
+    return "OFF_BLENDED", gas_bin, brake_bin
+  if acc_mode == "OFF" and long_intent == "neutral":
+    return "OFF_NEUTRAL", gas_bin, brake_bin
+
+  if acc_mode == "TRANSITION":
+    return "TRANSITION", gas_bin, brake_bin
+  return f"{acc_mode}_{long_intent}".upper(), gas_bin, brake_bin
 
 
 def infer_lat_direction(phase, b1):
@@ -567,6 +756,12 @@ def main() -> None:
   fr1_112 = None
   fr1_116 = None
   fr1_275 = None
+  fr1_2e = None
+  fr1_31 = None
+  fr1_37 = None
+  fr1_38 = None
+  fr1_3f = None
+  fr1_5d = None
   gas_ema = None
   brake_ema = None
   last_write = 0.0
@@ -637,10 +832,22 @@ def main() -> None:
               fr0_131 = dat.hex()
             elif msg.src == 0 and msg.address == 135 and len(dat) >= 9:
               fr0_135 = dat.hex()
+            elif msg.src == 1 and msg.address == 46 and len(dat) >= 9:
+              fr1_2e = dat.hex()
+            elif msg.src == 1 and msg.address == 49 and len(dat) >= 9:
+              fr1_31 = dat.hex()
             elif msg.src == 1 and msg.address == 54 and len(dat) >= 9:
               fr1_54 = dat.hex()
+            elif msg.src == 1 and msg.address == 55 and len(dat) >= 9:
+              fr1_37 = dat.hex()
+            elif msg.src == 1 and msg.address == 56 and len(dat) >= 9:
+              fr1_38 = dat.hex()
             elif msg.src == 1 and msg.address == 59 and len(dat) >= 9:
               fr1_59 = dat.hex()
+            elif msg.src == 1 and msg.address == 63 and len(dat) >= 9:
+              fr1_3f = dat.hex()
+            elif msg.src == 1 and msg.address == 93 and len(dat) >= 9:
+              fr1_5d = dat.hex()
             elif msg.src == 1 and msg.address == 97 and len(dat) >= 9:
               fr1_97 = dat.hex()
             elif msg.src == 1 and msg.address == 112 and len(dat) >= 9:
@@ -690,11 +897,12 @@ def main() -> None:
         if len(d135) > 6:
           state135 = d135[5] | (d135[6] << 8)
       acc_mode = mode_from_state(gate131, state135)
+      fine_state, gas_bin, brake_bin = fine_long_state(acc_mode, long_mode, gas_ema, brake_ema, fr1_54, fr1_59)
       desired_accel = 0.0 if car_control is None else float(car_control.actuators.accel)
       shadow_long = shadow_long_tx_hint(desired_accel, acc_mode, long_mode)
       bucket = (acc_mode, long_mode)
-      shadow_54_bytes = apply_phase_template(shadow_long["tx54"], fr1_54, bucket, 54)
-      shadow_59_bytes = apply_phase_template(shadow_long["tx59"], fr1_59, bucket, 59)
+      shadow_54_bytes = apply_phase_template(shadow_long["tx54"], fr1_54, bucket, 54, fine_state)
+      shadow_59_bytes = apply_phase_template(shadow_long["tx59"], fr1_59, bucket, 59, fine_state)
       acc_active = acc_mode in ("ACC_ARMED", "MANAGED")
       lat_active = (acc_mode == "MANAGED") and bool(lat_helper_active)
       tja_active = lat_active
@@ -723,6 +931,9 @@ def main() -> None:
         "steer770_raw": steer770_raw,
         "stock_long_intent": long_mode,
         "stock_long_intent_confidence": long_conf,
+        "stock_long_state_fine": fine_state,
+        "stock_long_gas_bin": gas_bin,
+        "stock_long_brake_bin": brake_bin,
         "shadow_long_desired_accel": desired_accel,
         "shadow_long_tx_mode": shadow_long["tx_mode"],
         "shadow_long_tx_branch": shadow_long["tx_branch"],
@@ -749,8 +960,14 @@ def main() -> None:
         "fr0_96": fr0_96,
         "fr0_131": fr0_131,
         "fr0_135": fr0_135,
+        "fr1_2e": fr1_2e,
+        "fr1_31": fr1_31,
+        "fr1_37": fr1_37,
+        "fr1_38": fr1_38,
+        "fr1_3f": fr1_3f,
         "fr1_54": fr1_54,
         "fr1_59": fr1_59,
+        "fr1_5d": fr1_5d,
         "fr1_97": fr1_97,
         "fr1_112": fr1_112,
         "fr1_116": fr1_116,
