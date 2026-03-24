@@ -127,14 +127,7 @@ class Camera:
     elif cam_type_state == "roadCameraState":
       backend_key = "WEBCAM_ROAD_BACKEND"
     self.backend = os.getenv(backend_key, os.getenv("WEBCAM_BACKEND", "opencv")).strip().lower()
-    output_key = "WEBCAM_FFMPEG_OUTPUT"
-    if cam_type_state == "driverCameraState":
-      output_key = "WEBCAM_DRIVER_FFMPEG_OUTPUT"
-    elif cam_type_state == "wideRoadCameraState":
-      output_key = "WEBCAM_WIDE_FFMPEG_OUTPUT"
-    elif cam_type_state == "roadCameraState":
-      output_key = "WEBCAM_ROAD_FFMPEG_OUTPUT"
-    self.ffmpeg_output = os.getenv(output_key, os.getenv("WEBCAM_FFMPEG_OUTPUT", "nv12")).strip().lower()
+    self.ffmpeg_output = os.getenv("WEBCAM_FFMPEG_OUTPUT", "nv12").strip().lower()
     self.cap = None
     self._requested_w = int(w)
     self._requested_h = int(h)

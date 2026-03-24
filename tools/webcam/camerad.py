@@ -10,6 +10,7 @@ from cereal import messaging
 from msgq.visionipc import VisionIpcServer, VisionStreamType
 from openpilot.common.realtime import Ratekeeper
 from openpilot.tools.webcam.camera import Camera, _env_flag
+from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 
 ROAD_CAM = os.getenv("ROAD_CAM", "0")
 WIDE_CAM = os.getenv("WIDE_CAM")
@@ -158,8 +159,8 @@ class Camerad:
       road_h = int(float(os.getenv("ROAD_H", "256")))
       wide_w = int(float(os.getenv("WIDE_W", "640")))
       wide_h = int(float(os.getenv("WIDE_H", "360")))
-      self.stream_meta[VisionStreamType.VISION_STREAM_ROAD] = {"msg_name": "roadCameraState", "width": road_w, "height": road_h, "src_size": road_w * road_h * 3 // 2}
-      self.stream_meta[VisionStreamType.VISION_STREAM_WIDE_ROAD] = {"msg_name": "wideRoadCameraState", "width": wide_w, "height": wide_h, "src_size": wide_w * wide_h * 3 // 2}
+      self.stream_meta[VisionStreamType.VISION_STREAM_ROAD] = {"msg_name": "roadCameraState", "width": road_w, "height": road_h}
+      self.stream_meta[VisionStreamType.VISION_STREAM_WIDE_ROAD] = {"msg_name": "wideRoadCameraState", "width": wide_w, "height": wide_h}
       self.vipc_server.create_buffers(VisionStreamType.VISION_STREAM_ROAD, 20, road_w, road_h)
       self.vipc_server.create_buffers(VisionStreamType.VISION_STREAM_WIDE_ROAD, 20, wide_w, wide_h)
     else:
@@ -173,9 +174,6 @@ class Camerad:
     pm_topics = [meta["msg_name"] for meta in self.stream_meta.values()] + [c.msg_name for c in CAMERAS if c.msg_name not in [m["msg_name"] for m in self.stream_meta.values()]]
     self.pm = messaging.PubMaster(pm_topics)
     self.vipc_server.start_listener()
-
-  def _pack_nv12_to_venus(self, payload: bytes, meta: dict) -> bytes:
-    return payload
 
   def _start_direct_splitter(self):
     src_cam = os.getenv("WEBCAM_SPLIT_SOURCE_CAM", "0").strip()
@@ -200,19 +198,18 @@ class Camerad:
       "-flags", "low_delay",
       "-init_hw_device", f"qsv=hw:{qsv_device}",
       "-filter_hw_device", "hw",
-      "-c:v", "mjpeg_qsv",
       "-f", "v4l2",
-      "-pixel_format", "mjpeg",
+      "-pixel_format", "nv12",
       "-framerate", fps,
       "-video_size", "1280x720",
       "-i", src_dev,
       "-map", "0:v",
-      "-vf", "vpp_qsv=transpose=reversal:w=640:h=360,hwdownload,format=nv12",
+      "-vf", "format=nv12,hwupload=extra_hw_frames=64,vpp_qsv=transpose=reversal:w=640:h=360,hwdownload,format=nv12",
       "-pix_fmt", "nv12",
       "-f", "rawvideo",
       f"pipe:{wide_w}",
       "-map", "0:v",
-      "-vf", "vpp_qsv=transpose=reversal:cw=536:ch=302:cx=372:cy=209:w=640:h=360,hwdownload,format=nv12",
+      "-vf", "format=nv12,hwupload=extra_hw_frames=64,vpp_qsv=transpose=reversal:cw=536:ch=302:cx=372:cy=209:w=640:h=360,hwdownload,format=nv12",
       "-pix_fmt", "nv12",
       "-f", "rawvideo",
       f"pipe:{road_w}",
@@ -221,10 +218,12 @@ class Camerad:
     os.close(wide_w)
     os.close(road_w)
 
+  def _pack_nv12_for_vipc(self, yuv_type, payload):
+    return payload
+
   def _send_yuv(self, yuv, frame_id, ts_ns, pub_type, yuv_type):
-    if self.direct_split and yuv_type in self.stream_meta:
-      yuv = self._pack_nv12_to_venus(yuv, self.stream_meta[yuv_type])
-    self.vipc_server.send(yuv_type, yuv, frame_id, ts_ns, ts_ns)
+    packed = self._pack_nv12_for_vipc(yuv_type, yuv)
+    self.vipc_server.send(yuv_type, packed, frame_id, ts_ns, ts_ns)
     dat = messaging.new_message(pub_type, valid=True)
     msg = {
       "frameId": frame_id,
@@ -287,7 +286,7 @@ class Camerad:
   def direct_reader_runner(self, stream_type):
     meta = self.stream_meta[stream_type]
     fd = self._direct_pipe_fds[stream_type]
-    frame_size = meta.get("src_size", meta["width"] * meta["height"] * 3 // 2)
+    frame_size = meta["width"] * meta["height"] * 3 // 2
     exposure = None
     if stream_type == VisionStreamType.VISION_STREAM_ROAD:
       src_cam = os.getenv("WEBCAM_SPLIT_SOURCE_CAM", "0").strip()

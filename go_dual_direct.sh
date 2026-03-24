@@ -46,6 +46,7 @@ export_default DISABLE_BOOTLOG 1
 export_default DISABLE_QCAMERA 1
 export DEV=CL
 export_default HEVC_VAAPI_ASYNC_DEPTH 4
+export_default HEVC_ENCODER vaapi
 export_default QCAMERA_ENCODER auto
 export_default VAAPI_DEVICE /dev/dri/renderD128
 export_default ROAD_MAIN_BITRATE_LOW 2500000
@@ -53,7 +54,7 @@ export_default ROAD_MAIN_BITRATE_HIGH 3500000
 export_default LOGGERD_ENCODER_QUEUE_LIMIT 1200
 export_default QCAM_BITRATE 120000
 export_default QCAM_FPS 5
-export_default WEBCAM_RAW_NV12 0
+export_default WEBCAM_RAW_NV12 1
 export_default DISABLE_ENCODERD 0
 export_default DISABLE_LOGGERD 0
 
@@ -93,34 +94,34 @@ export WINDOW_POS="${UI_X},${UI_Y}"
 export_default WEBCAM_PROFILE 0
 export_default WEBCAM_PROFILE_INTERVAL 5
 export_default WEBCAM_BRIO_FOV 90
-export WEBCAM_SPLIT_ENABLE=0
-export WEBCAM_DIRECT_SPLIT=0
+export WEBCAM_SPLIT_ENABLE=1
+export WEBCAM_DIRECT_SPLIT=1
 export WEBCAM_SPLIT_SOURCE_CAM=0
 export WEBCAM_SPLIT_WIDE_CAM=10
 export WEBCAM_SPLIT_ROAD_CAM=11
-export ROAD_CAM=0
-export WIDE_CAM=""
+export ROAD_CAM=11
+export WIDE_CAM=10
 export WEBCAM_BACKEND=ffmpeg
 export WEBCAM_ROAD_BACKEND=ffmpeg
 export WEBCAM_WIDE_BACKEND=ffmpeg
-export WEBCAM_FFMPEG_OUTPUT=nv12
+export WEBCAM_FFMPEG_OUTPUT=bgr24
 export WEBCAM_ROAD_FFMPEG_OUTPUT=nv12
 export WEBCAM_WIDE_FFMPEG_OUTPUT=nv12
 export WEBCAM_MJPG_QSV=0
 export WEBCAM_MAIN_IS_WIDE=0
 export UI_FORCE_WIDE_MAIN=0
-export ROAD_W=1280
-export ROAD_H=720
-export WIDE_W=1280
-export WIDE_H=720
+export ROAD_W=640
+export ROAD_H=360
+export WIDE_W=640
+export WIDE_H=360
 export WIDE_FPS=20
-export WIDE_FOURCC=MJPG
+export WIDE_FOURCC=NV12
 export ROAD_FPS=20
-export ROAD_FOURCC=MJPG
+export ROAD_FOURCC=NV12
 # PC rig intrinsics: keep road/wide configurable from the launcher without patching modeld/UI.
-export_default ROAD_HFOV_DEG 82.1
+export_default ROAD_HFOV_DEG 40
 export_default WIDE_HFOV_DEG 82.1
-export_default ROAD_FOCAL_PIXELS 734.9394796126561
+export_default ROAD_FOCAL_PIXELS 879.1927742254792
 export_default WIDE_FOCAL_PIXELS 367.46973980632804
 export_default WEBCAM_DYNAMIC_EXPOSURE 1
 export_default WEBCAM_DYNAMIC_GAIN 0
@@ -255,8 +256,6 @@ if [ "${ENABLE_BMW_I3_SHADOW_LOGGER}" = "1" ]; then
   nohup python "$PWD/scripts/bmw_i3_shadow_logger.py"     --out "${BMW_I3_SHADOW_LOGGER_OUT}"     --interval "${BMW_I3_SHADOW_LOGGER_INTERVAL}"     >>"${BMW_I3_SHADOW_LOGGER_ERR}" 2>&1 &
   echo $! > "${BMW_I3_SHADOW_LOGGER_PID}"
 fi
-
-export HEVC_ENCODER=cpu
 
 cd system/manager
 exec ./manager.py

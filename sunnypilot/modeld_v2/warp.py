@@ -3,13 +3,13 @@ import time
 import numpy as np
 from pathlib import Path
 from tinygrad.tensor import Tensor
+from tinygrad.helpers import Context
 from tinygrad.engine.jit import TinyJit
 from tinygrad.device import Device
 
-from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 from openpilot.selfdrive.modeld.compile_warp import (
   CAMERA_CONFIGS, MEDMODEL_INPUT_SIZE, make_frame_prepare, make_update_both_imgs,
-  warp_pkl_path,
+  warp_perspective_tinygrad, frames_to_tensor, warp_pkl_path,
 )
 
 MODELS_DIR = Path(__file__).parent / 'models'
@@ -22,7 +22,7 @@ def v2_warp_pkl_path(cam_w, cam_h, buffer_length):
 
 
 def compile_v2_warp(cam_w, cam_h, buffer_length):
-  _, _, _, yuv_size = get_nv12_info(cam_w, cam_h)
+  yuv_size = cam_w * cam_h * 3 // 2
   img_buffer_shape = (buffer_length * 6, MODEL_H // 2, MODEL_W // 2)
 
   print(f"Compiling v2 warp for {cam_w}x{cam_h} buffer_length={buffer_length}...")
@@ -39,12 +39,12 @@ def compile_v2_warp(cam_w, cam_h, buffer_length):
   for i in range(10):
     new_frame_np = (32 * np.random.randn(yuv_size).astype(np.float32) + 128).clip(0, 255).astype(np.uint8)
     img_inputs = [full_buffer,
-                  Tensor.from_blob(new_frame_np.ctypes.data, (yuv_size,), dtype='uint8').realize(),
-                  Tensor(Tensor.randn(3, 3).mul(8).realize().numpy(), device='NPY')]
+                  Tensor(new_frame_np, dtype='uint8').realize(),
+                  Tensor(Tensor.randn(3, 3).mul(8).realize().numpy())]
     new_big_frame_np = (32 * np.random.randn(yuv_size).astype(np.float32) + 128).clip(0, 255).astype(np.uint8)
     big_img_inputs = [big_full_buffer,
-                      Tensor.from_blob(new_big_frame_np.ctypes.data, (yuv_size,), dtype='uint8').realize(),
-                      Tensor(Tensor.randn(3, 3).mul(8).realize().numpy(), device='NPY')]
+                      Tensor(new_big_frame_np, dtype='uint8').realize(),
+                      Tensor(Tensor.randn(3, 3).mul(8).realize().numpy())]
     inputs = img_inputs + big_img_inputs
     Device.default.synchronize()
 
@@ -70,6 +70,27 @@ def compile_v2_warp(cam_w, cam_h, buffer_length):
   jit(*inputs)
 
 
+def offline_stage_diag(nv12_path, cam_w, cam_h, transform_flat):
+  arr = np.fromfile(nv12_path, dtype=np.uint8)
+  stride = cam_w
+  uv_offset = cam_w * cam_h
+  stride_pad = stride - cam_w
+  M_inv = Tensor(np.asarray(transform_flat, dtype=np.float32).reshape(3, 3)).realize()
+  input_frame = Tensor(arr, dtype='uint8').realize()
+  M_inv_uv = M_inv * Tensor([[1.0, 1.0, 0.5], [1.0, 1.0, 0.5], [2.0, 2.0, 1.0]])
+  uv = input_frame[uv_offset:uv_offset + (cam_h // 2) * stride].reshape(cam_h // 2, stride)
+  with Context(SPLIT_REDUCEOP=0):
+    y = warp_perspective_tinygrad(input_frame[:cam_h * stride], M_inv, (MODEL_W, MODEL_H), (cam_h, cam_w), stride_pad).realize()
+    u = warp_perspective_tinygrad(uv[:cam_h//2, :cam_w:2].flatten(), M_inv_uv, (MODEL_W//2, MODEL_H//2), (cam_h//2, cam_w//2), 0).realize()
+    v = warp_perspective_tinygrad(uv[:cam_h//2, 1:cam_w:2].flatten(), M_inv_uv, (MODEL_W//2, MODEL_H//2), (cam_h//2, cam_w//2), 0).realize()
+  yuv = y.cat(u).cat(v).reshape((MODEL_H * 3 // 2, MODEL_W)).realize()
+  tensor = frames_to_tensor(yuv, MODEL_W, MODEL_H).realize()
+
+  for name, t in [('input', input_frame), ('y', y), ('u', u), ('v', v), ('yuv', yuv), ('tensor', tensor)]:
+    n = t.numpy()
+    print(name, n.shape, int(n.sum()), int(n.min()), int(n.max()))
+
+
 class Warp:
   def __init__(self, buffer_length=2):
     self.buffer_length = buffer_length
@@ -77,10 +98,8 @@ class Warp:
 
     self.jit_cache = {}
     self.full_buffers = {k: Tensor.zeros(self.img_buffer_shape, dtype='uint8').contiguous().realize() for k in ['img', 'big_img']}
-    self._blob_cache: dict[int, Tensor] = {}
-    self._nv12_cache: dict[tuple[int, int], int] = {}
+    self._prep_cache = {}
     self.transforms_np = {k: np.zeros((3, 3), dtype=np.float32) for k in ['img', 'big_img']}
-    self.transforms = {k: Tensor(v, device='NPY').realize() for k, v in self.transforms_np.items()}
 
   def process(self, bufs, transforms):
     if not bufs:
@@ -91,39 +110,45 @@ class Warp:
     key = (cam_w, cam_h)
 
     if key not in self.jit_cache:
-      v2_pkl = v2_warp_pkl_path(cam_w, cam_h, self.buffer_length)
-      if v2_pkl.exists():
-        with open(v2_pkl, 'rb') as f:
-          self.jit_cache[key] = pickle.load(f)
-      elif self.buffer_length == UPSTREAM_BUFFER_LENGTH:
-        upstream_pkl = warp_pkl_path(cam_w, cam_h)
-        if upstream_pkl.exists():
-          with open(upstream_pkl, 'rb') as f:
-            self.jit_cache[key] = pickle.load(f)
-      if key not in self.jit_cache:
-        frame_prepare = make_frame_prepare(cam_w, cam_h, MODEL_W, MODEL_H)
-        update_both_imgs = make_update_both_imgs(frame_prepare, MODEL_W, MODEL_H)
-        self.jit_cache[key] = TinyJit(update_both_imgs, prune=True)
+      frame_prepare = self._prep_cache.get((cam_w, cam_h, bufs[road].stride, bufs[road].uv_offset))
+      if frame_prepare is None:
+        stride = bufs[road].stride
+        uv_offset = bufs[road].uv_offset
+        stride_pad = stride - cam_w
+        def frame_prepare(input_frame, M_inv, *, _stride=stride, _uv_offset=uv_offset, _cam_h=cam_h, _cam_w=cam_w):
+          M_inv_uv = M_inv * Tensor([[1.0, 1.0, 0.5], [1.0, 1.0, 0.5], [2.0, 2.0, 1.0]])
+          uv = input_frame[_uv_offset:_uv_offset + (_cam_h // 2) * _stride].reshape(_cam_h // 2, _stride)
+          with Context(SPLIT_REDUCEOP=0):
+            y = warp_perspective_tinygrad(input_frame[:_cam_h*_stride], M_inv, (MODEL_W, MODEL_H), (_cam_h, _cam_w), stride_pad).realize()
+            u = warp_perspective_tinygrad(uv[:_cam_h//2, :_cam_w:2].flatten(), M_inv_uv, (MODEL_W//2, MODEL_H//2), (_cam_h//2, _cam_w//2), 0).realize()
+            v = warp_perspective_tinygrad(uv[:_cam_h//2, 1:_cam_w:2].flatten(), M_inv_uv, (MODEL_W//2, MODEL_H//2), (_cam_h//2, _cam_w//2), 0).realize()
+          yuv = y.cat(u).cat(v).reshape((MODEL_H * 3 // 2, MODEL_W))
+          return frames_to_tensor(yuv, MODEL_W, MODEL_H)
+        self._prep_cache[(cam_w, cam_h, bufs[road].stride, bufs[road].uv_offset)] = frame_prepare
+      update_both_imgs = make_update_both_imgs(self._prep_cache[(cam_w, cam_h, bufs[road].stride, bufs[road].uv_offset)], MODEL_W, MODEL_H)
+      self.jit_cache[key] = update_both_imgs
 
-    if key not in self._nv12_cache:
-      self._nv12_cache[key] = get_nv12_info(cam_w, cam_h)[3]
-    yuv_size = self._nv12_cache[key]
+    yuv_size = road_arr.size if 'road_arr' in locals() else cam_w * cam_h * 3 // 2
 
-    road_ptr = bufs[road].data.ctypes.data
-    wide_ptr = bufs[wide].data.ctypes.data
-    if road_ptr not in self._blob_cache:
-      self._blob_cache[road_ptr] = Tensor.from_blob(road_ptr, (yuv_size,), dtype='uint8')
-    if wide_ptr not in self._blob_cache:
-      self._blob_cache[wide_ptr] = Tensor.from_blob(wide_ptr, (yuv_size,), dtype='uint8')
-    road_blob = self._blob_cache[road_ptr]
-    wide_blob = self._blob_cache[wide_ptr] if wide_ptr != road_ptr else Tensor.from_blob(wide_ptr, (yuv_size,), dtype='uint8')
+    # Keep numpy views alive for the duration of the call. VisionBuf.data
+    # returns a Python array view object; using only .ctypes.data can leave
+    # Tensor.from_blob() pointing at released temporary memory.
+    road_arr = bufs[road].data
+    wide_arr = bufs[wide].data
+    yuv_size = road_arr.size
+    road_blob = Tensor(road_arr, dtype='uint8').realize()
+    wide_blob = road_blob if road_arr.ctypes.data == wide_arr.ctypes.data else Tensor(wide_arr, dtype='uint8').realize()
     np.copyto(self.transforms_np['img'], transforms[road].reshape(3, 3))
     np.copyto(self.transforms_np['big_img'], transforms[wide].reshape(3, 3))
+    # Recreate transform tensors from the updated numpy matrices; the cached Tensor
+    # created at init time does not track later np.copyto() writes.
+    img_transform = Tensor(self.transforms_np['img']).realize()
+    big_img_transform = Tensor(self.transforms_np['big_img']).realize()
 
     Device.default.synchronize()
     res = self.jit_cache[key](
-      self.full_buffers['img'], road_blob, self.transforms['img'],
-      self.full_buffers['big_img'], wide_blob, self.transforms['big_img'],
+      self.full_buffers['img'], road_blob, img_transform,
+      self.full_buffers['big_img'], wide_blob, big_img_transform,
     )
     self.full_buffers['img'], out_road = res[0].realize(), res[1].realize()
     self.full_buffers['big_img'], out_wide = res[2].realize(), res[3].realize()

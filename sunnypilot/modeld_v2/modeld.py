@@ -225,8 +225,10 @@ def main(demo=False):
   last_vipc_frame_id = 0
   run_count = 0
 
-  model_transform_main = np.zeros((3, 3), dtype=np.float32)
-  model_transform_extra = np.zeros((3, 3), dtype=np.float32)
+  default_dc = get_device_camera_config('pc', 'unknown')
+  zero_calib = np.zeros(3, dtype=np.float32)
+  model_transform_main = get_warp_matrix(zero_calib, default_dc.ecam.intrinsics if main_wide_camera else default_dc.fcam.intrinsics, False).astype(np.float32)
+  model_transform_extra = get_warp_matrix(zero_calib, default_dc.ecam.intrinsics, True).astype(np.float32)
   live_calib_seen = False
   buf_main, buf_extra = None, None
   meta_main = FrameMeta()
@@ -320,6 +322,17 @@ def main(demo=False):
 
     bufs = {name: buf_extra if 'big' in name else buf_main for name in model.model_runner.vision_input_names}
     transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in model.model_runner.vision_input_names}
+    if os.getenv("MODEL_WARP_DIAG", "0") in ("1", "true", "yes", "on") and prepare_only:
+      try:
+        ts_delta_ms = (meta_main.timestamp_sof - meta_extra.timestamp_sof) / 1e6
+        t_main = np.round(model_transform_main.reshape(3, 3), 4).tolist()
+        t_extra = np.round(model_transform_extra.reshape(3, 3), 4).tolist()
+        cloudlog.warning(
+          f"prepare_diag frame={meta_main.frame_id} dropped={vipc_dropped_frames} "
+          f"main_extra_delta_ms={ts_delta_ms:.3f} main={t_main} extra={t_extra}"
+        )
+      except Exception:
+        cloudlog.exception('prepare_diag_failed')
     if os.getenv("MODEL_RAW_BUF_DIAG", "0") in ("1", "true", "yes", "on") and (meta_main.frame_id % 100 == 0):
       try:
         road_np = np.asarray(buf_main.data)
@@ -327,6 +340,14 @@ def main(demo=False):
         cloudlog.warning(f"raw_buf_diag frame={meta_main.frame_id} road=[sum={int(road_np.sum())},min={int(road_np.min())},max={int(road_np.max())},len={len(road_np)}] extra=[sum={int(extra_np.sum())},min={int(extra_np.min())},max={int(extra_np.max())},len={len(extra_np)}]")
       except Exception:
         cloudlog.exception('raw_buf_diag_failed')
+    if os.getenv("MODEL_WARP_DIAG", "0") in ("1", "true", "yes", "on") and (meta_main.frame_id % 100 == 0):
+      try:
+        t_main = np.round(model_transform_main.reshape(3, 3), 6).tolist()
+        t_extra = np.round(model_transform_extra.reshape(3, 3), 6).tolist()
+        named = {k: np.round(v.reshape(3, 3), 6).tolist() for k, v in transforms.items()}
+        cloudlog.warning(f"transform_diag frame={meta_main.frame_id} main={t_main} extra={t_extra} named={named}")
+      except Exception:
+        cloudlog.exception('transform_diag_failed')
     inputs:dict[str, np.ndarray] = {
       model.desire_key: vec_desire,
       'traffic_convention': traffic_convention,
