@@ -727,6 +727,7 @@ def main() -> None:
   longplan_sock = messaging.sub_sock("longitudinalPlan", addr=args.addr, conflate=True)
   longplan_sp_sock = messaging.sub_sock("longitudinalPlanSP", addr=args.addr, conflate=True)
   carcontrol_sp_sock = messaging.sub_sock("carControlSP", addr=args.addr, conflate=True)
+  sendcan_sock = messaging.sub_sock("sendcan", addr=args.addr, conflate=True)
 
   cs = None
   controls_state = None
@@ -797,6 +798,14 @@ def main() -> None:
       m = latest(carcontrol_sp_sock)
       if m is not None:
         car_control_sp = m.carControlSP
+
+      sendcan_msgs = []
+      m = latest(sendcan_sock)
+      if m is not None:
+        try:
+          sendcan_msgs = list(m.sendcan)
+        except Exception:
+          sendcan_msgs = []
 
       can_msgs = messaging.drain_sock(can_sock, wait_for_one=False)
       if can_msgs:
@@ -907,6 +916,46 @@ def main() -> None:
       lat_active = (acc_mode == "MANAGED") and bool(lat_helper_active)
       tja_active = lat_active
 
+      # sendcan on this path contains the host-side injector override packet,
+      # not the final reconstructed FlexRay frame after firmware injection.
+      long_send_54 = None
+      long_send_59 = None
+      lat_send_72 = None
+      lat_send_96 = None
+      host_override_long_54 = None
+      host_override_long_59 = None
+      host_override_lat_72 = None
+      host_override_lat_96 = None
+      host_override_long_54_base = None
+      host_override_long_59_base = None
+      host_override_lat_72_base = None
+      host_override_lat_96_base = None
+      for msg in sendcan_msgs:
+        try:
+          addr = int(msg.address)
+          src = int(msg.src)
+          dat = bytes(msg.dat)
+        except Exception:
+          continue
+        if src != 1 or len(dat) < 1:
+          continue
+        if addr == 54:
+          long_send_54 = dat.hex()
+          host_override_long_54 = dat.hex()
+          host_override_long_54_base = dat[0]
+        elif addr == 59:
+          long_send_59 = dat.hex()
+          host_override_long_59 = dat.hex()
+          host_override_long_59_base = dat[0]
+        elif addr == 72:
+          lat_send_72 = dat.hex()
+          host_override_lat_72 = dat.hex()
+          host_override_lat_72_base = dat[0]
+        elif addr == 96:
+          lat_send_96 = dat.hex()
+          host_override_lat_96 = dat.hex()
+          host_override_lat_96_base = dat[0]
+
       row = {
         "ts_wall": time.time(),
         "ts_mono": now,
@@ -972,6 +1021,20 @@ def main() -> None:
         "fr1_112": fr1_112,
         "fr1_116": fr1_116,
         "fr1_275": fr1_275,
+        "host_override_long_54": host_override_long_54,
+        "host_override_long_59": host_override_long_59,
+        "host_override_lat_72": host_override_lat_72,
+        "host_override_lat_96": host_override_lat_96,
+        "host_override_long_54_base": host_override_long_54_base,
+        "host_override_long_59_base": host_override_long_59_base,
+        "host_override_lat_72_base": host_override_lat_72_base,
+        "host_override_lat_96_base": host_override_lat_96_base,
+        # Backward-compat alias. These fields reflect the host override packet,
+        # not the final post-injection FlexRay frame on the bus.
+        "sendcan_long_54": long_send_54,
+        "sendcan_long_59": long_send_59,
+        "sendcan_lat_72": lat_send_72,
+        "sendcan_lat_96": lat_send_96,
       }
       if controls_state is not None:
         row.update({
