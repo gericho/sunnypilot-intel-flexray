@@ -17,6 +17,7 @@ from openpilot.sunnypilot.livedelay.helpers import get_lat_delay
 from openpilot.sunnypilot.modeld_v2.modeld_base import ModelStateBase
 from openpilot.sunnypilot.selfdrive.controls.lib.blinker_pause_lateral import BlinkerPauseLateral
 from openpilot.sunnypilot.selfdrive.controls.lib.latcontrol_torque_v0 import LatControlTorque as LatControlTorqueV0
+from opendbc.car.bmw_i3.values import CAR as BMWI3_CAR
 
 
 class ControlsExt(ModelStateBase):
@@ -55,6 +56,12 @@ class ControlsExt(ModelStateBase):
       self._param_update_time = time.monotonic()
 
   def get_lat_active(self, sm: messaging.SubMaster) -> bool:
+    # BMW i3 mimic-long branch must run in true long-only mode. Leaving the
+    # generic lateral activation path alive causes angle-control saturation and
+    # "Turn Exceeds Steering Limit" even with lateral TX disabled.
+    if self.CP.carFingerprint == BMWI3_CAR.BMW_I3_EXPERIMENTAL and self.CP.openpilotLongitudinalControl:
+      return False
+
     if self.blinker_pause_lateral.update(sm['carState']):
       return False
 
