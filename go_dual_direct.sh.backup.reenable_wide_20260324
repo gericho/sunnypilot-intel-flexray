@@ -32,7 +32,7 @@ append_block() {
 export_default SP_DEVICE_TYPE PC
 export_default BIG 1
 export_default SCALE 0.4
-export_default NO_DM 0
+export_default NO_DM 1
 export_default UI_X 1488
 export_default UI_Y 0
 
@@ -157,7 +157,7 @@ export MODEL_RAW_BUF_DIAG=1
 export_default ORT_OPENVINO_CACHE_DIR "$PWD/.cache/openvino_model_cache"
 
 export_default ENABLE_BMW_I3_SHADOW_LOGGER 1
-export_default DISABLE_WIDE_RECORDING 0
+export_default DISABLE_WIDE_RECORDING 1
 export_default BMW_I3_SHADOW_LOGGER_INTERVAL 0.2
 export_default BMW_I3_SHADOW_LOGGER_OUT /tmp/bmw_i3_shadow/rlog.jsonl
 export_default BMW_I3_SHADOW_LOGGER_ERR /tmp/bmw_i3_shadow_logger.stderr

@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+import cv2 as cv
+import numpy as np
+
+from tools.webcam.camera import Camera
+
+
+def env_default(name: str, value: str) -> None:
+  if name not in os.environ:
+    os.environ[name] = value
+
+
+def nv12_payload_to_bgr(payload, width: int, height: int) -> np.ndarray:
+  nv12 = np.frombuffer(payload, dtype=np.uint8, count=width * height * 3 // 2)
+  nv12 = nv12.reshape((height * 3 // 2, width))
+  return cv.cvtColor(nv12, cv.COLOR_YUV2BGR_NV12)
+
+
+def main() -> int:
+  ap = argparse.ArgumentParser(description="Preview /dev/video0 with integrated webcam auto exposure")
+  ap.add_argument("--device", default="/dev/video0")
+  ap.add_argument("--width", type=int, default=1280)
+  ap.add_argument("--height", type=int, default=720)
+  ap.add_argument("--fps", type=int, default=20)
+  ap.add_argument("--fourcc", default="NV12")
+  ap.add_argument("--backend", default="opencv", choices=["opencv", "ffmpeg"])
+  ap.add_argument("--flip", default="-1", help="none, -1, 0, 1")
+  ap.add_argument("--title", default="video0 autoexpose preview")
+  ap.add_argument("--brio-fov", default=None)
+  ap.add_argument("--display", default="ffplay", choices=["ffplay", "opencv"])
+  args = ap.parse_args()
+
+  env_default("ROAD_W", str(args.width))
+  env_default("ROAD_H", str(args.height))
+  env_default("ROAD_FPS", str(args.fps))
+  env_default("ROAD_FOURCC", args.fourcc.upper())
+  env_default("WEBCAM_ROAD_BACKEND", args.backend)
+  env_default("WEBCAM_BACKEND", args.backend)
+  env_default("WEBCAM_DYNAMIC_EXPOSURE", "1")
+  env_default("WEBCAM_DYNAMIC_GAIN", "1")
+  env_default("WEBCAM_FLIP", args.flip)
+  env_default("WEBCAM_RAW_NV12", "1")
+  env_default("WEBCAM_PROFILE", "0")
+  if args.brio_fov is not None:
+    os.environ["WEBCAM_BRIO_FOV"] = args.brio_fov
+
+  cam = Camera("roadCameraState", "road", args.device)
+
+  ffplay_proc = None
+  if args.display == "ffplay":
+    ffplay_bin = shutil.which("ffplay")
+    if ffplay_bin is None:
+      print("ffplay not found", file=sys.stderr)
+      return 1
+    ffplay_proc = subprocess.Popen([
+      ffplay_bin,
+      "-hide_banner",
+      "-loglevel", "warning",
+      "-fflags", "nobuffer",
+      "-flags", "low_delay",
+      "-window_title", args.title,
+      "-f", "rawvideo",
+      "-pixel_format", "nv12",
+      "-video_size", f"{cam.w_int}x{cam.h_int}",
+      "-framerate", str(args.fps),
+      "-i", "pipe:0",
+    ], stdin=subprocess.PIPE)
+  else:
+    cv.namedWindow(args.title, cv.WINDOW_NORMAL)
+    cv.resizeWindow(args.title, min(args.width, 1280), min(args.height, 720))
+
+  frame_count = 0
+  t0 = time.monotonic()
+  last_fps_print = t0
+
+  try:
+    for payload, _meta in cam.read_frames():
+      frame_count += 1
+
+      now = time.monotonic()
+      if now - last_fps_print >= 1.0:
+        fps = frame_count / max(now - t0, 1e-3)
+        if args.display == "opencv":
+          cv.setWindowTitle(args.title, f"{args.title}  {cam.w_int}x{cam.h_int}  {fps:.1f} fps")
+        else:
+          print(f"preview {cam.w_int}x{cam.h_int} {fps:.1f} fps")
+        last_fps_print = now
+
+      if args.display == "ffplay":
+        if ffplay_proc is None or ffplay_proc.stdin is None or ffplay_proc.poll() is not None:
+          break
+        ffplay_proc.stdin.write(payload)
+        ffplay_proc.stdin.flush()
+      else:
+        frame = nv12_payload_to_bgr(payload, cam.w_int, cam.h_int)
+        cv.imshow(args.title, frame)
+        key = cv.waitKey(1) & 0xFF
+        if key in (27, ord("q")):
+          break
+  except KeyboardInterrupt:
+    pass
+  finally:
+    if ffplay_proc is not None:
+      try:
+        if ffplay_proc.stdin is not None:
+          ffplay_proc.stdin.close()
+      except Exception:
+        pass
+      try:
+        ffplay_proc.terminate()
+      except Exception:
+        pass
+    if args.display == "opencv":
+      cv.destroyAllWindows()
+
+  return 0
+
+
+if __name__ == "__main__":
+  raise SystemExit(main())

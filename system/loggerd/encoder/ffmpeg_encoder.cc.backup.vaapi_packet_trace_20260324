@@ -30,27 +30,6 @@ const int env_debug_encoder = (getenv("DEBUG_ENCODER") != NULL) ? atoi(getenv("D
 
 namespace {
 
-std::string make_codec_fps_string(int fps) {
-  return util::string_format("%d/1", std::max(1, fps));
-}
-
-void apply_software_codec_timing(AVCodecContext *ctx, const AVCodec *codec, const EncoderInfo &encoder_info) {
-  if (ctx == nullptr || codec == nullptr || ctx->priv_data == nullptr) return;
-
-  const std::string fps = make_codec_fps_string(encoder_info.fps);
-  const std::string timebase = util::string_format("1/%d", std::max(1, encoder_info.fps));
-
-  // Raw elementary streams do not carry container timestamps. Make the codec-level
-  // timing explicit so ffprobe sees the same cadence as the camera pipeline.
-  if (codec->name != nullptr && strcmp(codec->name, "libx265") == 0) {
-    av_opt_set(ctx->priv_data, "x265-params",
-               util::string_format("bframes=0:repeat-headers=1:fps=%s:timebase=%s", fps.c_str(), timebase.c_str()).c_str(), 0);
-  } else if (codec->name != nullptr && strcmp(codec->name, "libx264") == 0) {
-    av_opt_set(ctx->priv_data, "x264-params",
-               util::string_format("bframes=0:repeat-headers=1:fps=%s", fps.c_str()).c_str(), 0);
-  }
-}
-
 AVCodecContext *make_software_codec_ctx(const AVCodec *codec, const EncoderInfo &encoder_info,
                                         int width, int height, int bitrate, int gop_size,
                                         bool qcamera_h264) {
@@ -64,7 +43,6 @@ AVCodecContext *make_software_codec_ctx(const AVCodec *codec, const EncoderInfo 
   ctx->pix_fmt = AV_PIX_FMT_YUV420P;
   ctx->time_base = (AVRational){1, encoder_info.fps};
   ctx->framerate = (AVRational){encoder_info.fps, 1};
-  ctx->pkt_timebase = ctx->time_base;
   ctx->bit_rate = bitrate;
   ctx->gop_size = gop_size;
   ctx->max_b_frames = 0;
@@ -76,12 +54,8 @@ AVCodecContext *make_software_codec_ctx(const AVCodec *codec, const EncoderInfo 
     av_opt_set(ctx->priv_data, "preset", "ultrafast", 0);
     av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
     if (codec->name != nullptr && strcmp(codec->name, "libx265") == 0) {
-      apply_software_codec_timing(ctx, codec, encoder_info);
+      av_opt_set(ctx->priv_data, "x265-params", "bframes=0:repeat-headers=1", 0);
     }
-  }
-
-  if (qcamera_h264) {
-    apply_software_codec_timing(ctx, codec, encoder_info);
   }
 
   return ctx;

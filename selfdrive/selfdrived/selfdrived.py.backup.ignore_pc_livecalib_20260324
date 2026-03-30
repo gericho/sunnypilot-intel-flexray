@@ -103,7 +103,7 @@ class SelfdriveD(CruiseHelper):
       # PC webcam rigs don't provide clean stock-quality validity for these
       # learned/location/helper topics in this custom setup. Exclude them from
       # generic selfdrived health gating so they don't block engagement.
-      ignore += ['liveCalibration', 'livePose', 'liveDelay', 'liveParameters', 'liveTorqueParameters',
+      ignore += ['livePose', 'liveDelay', 'liveParameters', 'liveTorqueParameters',
                  'driverAssistance', 'longitudinalPlanSP', 'modelDataV2SP', 'alertDebug']
     self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'modelV2', 'liveCalibration',
                                    'carOutput', 'driverMonitoringState', 'longitudinalPlan', 'livePose', 'liveDelay',

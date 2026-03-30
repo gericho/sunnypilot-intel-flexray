@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+import argparse
+import math
+import struct
+import time
+from dataclasses import dataclass
+import usb1
+
+CRC8_TABLE = [
+  0x00, 0x1D, 0x3A, 0x27, 0x74, 0x69, 0x4E, 0x53, 0xE8, 0xF5, 0xD2, 0xCF, 0x9C, 0x81, 0xA6, 0xBB,
+  0xCD, 0xD0, 0xF7, 0xEA, 0xB9, 0xA4, 0x83, 0x9E, 0x25, 0x38, 0x1F, 0x02, 0x51, 0x4C, 0x6B, 0x76,
+  0x87, 0x9A, 0xBD, 0xA0, 0xF3, 0xEE, 0xC9, 0xD4, 0x6F, 0x72, 0x55, 0x48, 0x1B, 0x06, 0x21, 0x3C,
+  0x4A, 0x57, 0x70, 0x6D, 0x3E, 0x23, 0x04, 0x19, 0xA2, 0xBF, 0x98, 0x85, 0xD6, 0xCB, 0xEC, 0xF1,
+  0x13, 0x0E, 0x29, 0x34, 0x67, 0x7A, 0x5D, 0x40, 0xFB, 0xE6, 0xC1, 0xDC, 0x8F, 0x92, 0xB5, 0xA8,
+  0xDE, 0xC3, 0xE4, 0xF9, 0xAA, 0xB7, 0x90, 0x8D, 0x36, 0x2B, 0x0C, 0x11, 0x42, 0x5F, 0x78, 0x65,
+  0x94, 0x89, 0xAE, 0xB3, 0xE0, 0xFD, 0xDA, 0xC7, 0x7C, 0x61, 0x46, 0x5B, 0x08, 0x15, 0x32, 0x2F,
+  0x59, 0x44, 0x63, 0x7E, 0x2D, 0x30, 0x17, 0x0A, 0xB1, 0xAC, 0x8B, 0x96, 0xC5, 0xD8, 0xFF, 0xE2,
+  0x26, 0x3B, 0x1C, 0x01, 0x52, 0x4F, 0x68, 0x75, 0xCE, 0xD3, 0xF4, 0xE9, 0xBA, 0xA7, 0x80, 0x9D,
+  0xEB, 0xF6, 0xD1, 0xCC, 0x9F, 0x82, 0xA5, 0xB8, 0x03, 0x1E, 0x39, 0x24, 0x77, 0x6A, 0x4D, 0x50,
+  0xA1, 0xBC, 0x9B, 0x86, 0xD5, 0xC8, 0xEF, 0xF2, 0x49, 0x54, 0x73, 0x6E, 0x3D, 0x20, 0x07, 0x1A,
+  0x6C, 0x71, 0x56, 0x4B, 0x18, 0x05, 0x22, 0x3F, 0x84, 0x99, 0xBE, 0xA3, 0xF0, 0xED, 0xCA, 0xD7,
+  0x35, 0x28, 0x0F, 0x12, 0x41, 0x5C, 0x7B, 0x66, 0xDD, 0xC0, 0xE7, 0xFA, 0xA9, 0xB4, 0x93, 0x8E,
+  0xF8, 0xE5, 0xC2, 0xDF, 0x8C, 0x91, 0xB6, 0xAB, 0x10, 0x0D, 0x2A, 0x37, 0x64, 0x79, 0x5E, 0x43,
+  0xB2, 0xAF, 0x88, 0x95, 0xC6, 0xDB, 0xFC, 0xE1, 0x5A, 0x47, 0x60, 0x7D, 0x2E, 0x33, 0x14, 0x09,
+  0x7F, 0x62, 0x45, 0x58, 0x0B, 0x16, 0x31, 0x2C, 0x97, 0x8A, 0xAD, 0xB0, 0xE3, 0xFE, 0xD9, 0xC4,
+]
+
+PHASE_B1_MODEL = {
+  60: (112.083, 110.0),
+  24: (80.833, 135.0),
+  8: (149.5, 90.0),
+}
+
+USB_VIDS = (0xBBAA, 0x3801)
+USB_PIDS = (0xDDEE, 0xDDCC)
+USB_READ_EP = 1
+USB_WRITE_EP = 3
+
+STATIC_TJA_FAMILIES = {
+  "f9": (
+    bytes.fromhex("1a00000000000000000000000000000000"),
+    bytes.fromhex("080af8e0ffffffffff"),
+  ),
+  "f5": (
+    bytes.fromhex("1200000000000000000000000000000000"),
+    bytes.fromhex("28d5fc21ffffffffff"),
+  ),
+  "f0": (
+    bytes.fromhex("3200000000000000000000000000000000"),
+    bytes.fromhex("2cecf5e0ffffffffff"),
+  ),
+}
+
+STATIC_TJA_CONTEXTS = {
+  "f9": (
+    bytes.fromhex("03cbf0c8201bf2ffff"),
+    bytes.fromhex("26f5658addf13130c1"),
+  ),
+  "f5": (
+    bytes.fromhex("03dbfbc8200bf2ffff"),
+    bytes.fromhex("16a96a8addf13130c1"),
+  ),
+  "f0": (
+    bytes.fromhex("1b60f7c8200bf2ffff"),
+    bytes.fromhex("04f46b8addf13130c1"),
+  ),
+}
+
+
+@dataclass
+class LatState:
+  cycle: int = 0
+  phase: int = 0
+  b1: int = 0
+  b2: int = 0
+  b3: int = 0
+  seen_72: bool = False
+  seen_96: bool = False
+  last_rx_monotonic: float = 0.0
+
+
+@dataclass
+class RawUsbDevice:
+  context: usb1.USBContext
+  handle: usb1.USBDeviceHandle
+  serial: str
+
+  def close(self) -> None:
+    try:
+      self.handle.close()
+    finally:
+      self.context.close()
+
+
+def crc8(data: bytes, init_value: int = 0xF1) -> int:
+  crc = init_value & 0xFF
+  for b in data:
+    crc = CRC8_TABLE[crc ^ b]
+  return crc
+
+
+def pack_override(frame_id: int, base: int, dat: bytes) -> bytes:
+  if len(dat) < 1:
+    raise ValueError('dat must include base byte')
+  payload_len = len(dat)
+  out = bytearray()
+  out.append(0x90)
+  out.append(frame_id & 0xFF)
+  out.append((frame_id >> 8) & 0x07)
+  out.append(base & 0xFF)
+  out.extend(struct.pack('<H', payload_len))
+  out.append(crc8(dat[1:]))
+  out.extend(dat[1:])
+  return bytes(out)
+
+
+def unpack_flexray_records(buf: bytes) -> tuple[list[tuple[int, int, int, bytes]], bytes]:
+  out = []
+  pos = 0
+  size = len(buf)
+  while pos + 2 <= size:
+    body_len = buf[pos] | (buf[pos + 1] << 8)
+    record_len = body_len + 2
+    if body_len < 9 or body_len > (1 + 5 + 254 + 3):
+      pos += 1
+      continue
+    if pos + record_len > size:
+      break
+    rec = buf[pos + 2:pos + record_len]
+    source = rec[0]
+    hdr = rec[1:6]
+    byte0, byte1, byte2, byte3, byte4 = hdr
+    frame_id = ((byte0 & 0x07) << 8) | byte1
+    payload_words = byte2 >> 1
+    cycle = byte4 & 0x3F
+    payload_bytes = payload_words * 2
+    actual_payload_bytes = body_len - (1 + 5 + 3)
+    if actual_payload_bytes != payload_bytes or payload_bytes > 254:
+      pos += 1
+      continue
+    payload = bytes(rec[6:6 + payload_bytes])
+    out.append((frame_id, source, cycle, payload))
+    pos += record_len
+  return out, buf[pos:]
+
+
+def build_frame72(phase: int, cnt: int, byte8: int = 0xE0) -> bytes:
+  payload = bytearray([0] * 17)
+  payload[0] = phase & 0xFF
+  payload[2] = (0xF << 4) | (cnt & 0xF)
+  payload[8] = byte8 & 0xFF
+  return bytes(payload)
+
+
+def build_frame96(phase: int, b1: int, b2: int, b3: int, b4: int = 0, b8: int = 0) -> bytes:
+  payload = bytearray([0] * 9)
+  payload[0] = phase & 0xFF
+  payload[1] = b1 & 0xFF
+  payload[2] = b2 & 0xFF
+  payload[3] = b3 & 0xFF
+  payload[4] = b4 & 0xFF
+  payload[8] = b8 & 0xFF
+  return bytes(payload)
+
+
+def build_static_family_frames(family_name: str, live_phase: int, cnt: int) -> tuple[bytes, bytes]:
+  tx72, tx96 = STATIC_TJA_FAMILIES[family_name]
+  out72 = bytearray(tx72)
+  out96 = bytearray(tx96)
+  out72[0] = live_phase & 0xFF
+  out72[2] = (0xF << 4) | (cnt & 0xF)
+  out96[0] = live_phase & 0xFF
+  return bytes(out72), bytes(out96)
+
+
+def build_static_context_frames(family_name: str, live_phase: int) -> tuple[bytes, bytes]:
+  tx112, tx116 = STATIC_TJA_CONTEXTS[family_name]
+  out112 = bytearray(tx112)
+  out116 = bytearray(tx116)
+  out112[0] = live_phase & 0xFF
+  out116[0] = (live_phase + 1) & 0xFF
+  return bytes(out112), bytes(out116)
+
+
+def target_b1_for_angle(phase: int, angle_deg: float, fallback_b1: int, max_delta: int) -> int:
+  model = PHASE_B1_MODEL.get(phase)
+  if model is None:
+    mag = min(1.0, abs(angle_deg) / 90.0)
+    signed = 1.0 if angle_deg >= 0.0 else -1.0
+    return max(0, min(255, int(round(fallback_b1 + signed * max_delta * mag))))
+  thr, scale = model
+  mag = min(1.0, abs(angle_deg) / 90.0)
+  signed = 1.0 if angle_deg >= 0.0 else -1.0
+  return max(0, min(255, int(round(thr + signed * scale * mag))))
+
+
+def profile_angle(t_s: float, rate_deg_s: float, max_angle_deg: float, return_angle_deg: float) -> float:
+  t_up = abs(max_angle_deg) / max(rate_deg_s, 1e-6)
+  t_down = abs(max_angle_deg - return_angle_deg) / max(rate_deg_s, 1e-6)
+  if t_s <= t_up:
+    return min(max_angle_deg, t_s * rate_deg_s)
+  t2 = t_s - t_up
+  if t2 <= t_down:
+    direction = -1.0 if return_angle_deg < max_angle_deg else 1.0
+    return max_angle_deg + direction * t2 * rate_deg_s
+  return return_angle_deg
+
+
+def open_picoflex_device(serial: str = '') -> RawUsbDevice:
+  wanted_serial = serial or None
+  context = usb1.USBContext()
+  context.open()
+
+  for device in context.getDeviceList(skip_on_error=True):
+    if device.getVendorID() not in USB_VIDS or device.getProductID() not in USB_PIDS:
+      continue
+    try:
+      this_serial = device.getSerialNumber()
+    except Exception:
+      continue
+    if wanted_serial is not None and this_serial != wanted_serial:
+      continue
+
+    handle = device.open()
+    if handle is None:
+      continue
+    try:
+      try:
+        handle.setAutoDetachKernelDriver(True)
+      except Exception:
+        pass
+      handle.claimInterface(0)
+      return RawUsbDevice(context=context, handle=handle, serial=this_serial)
+    except Exception:
+      handle.close()
+      raise
+
+  context.close()
+  raise RuntimeError('failed to open picoflex device directly over usb1')
+
+
+def recv_until_lat_ready(dev: RawUsbDevice, timeout_s: float = 3.0) -> LatState:
+  st = LatState()
+  deadline = time.monotonic() + timeout_s
+  overflow = b''
+  while time.monotonic() < deadline:
+    st, overflow = poll_lat_state(dev, st, overflow, timeout_ms=100)
+    if st.seen_72 and st.seen_96:
+      return st
+  raise TimeoutError('timed out waiting for live 72/96 frames')
+
+
+def poll_lat_state(dev: RawUsbDevice, st: LatState, overflow: bytes, timeout_ms: int = 0) -> tuple[LatState, bytes]:
+  try:
+    raw = bytes(dev.handle.bulkRead(USB_READ_EP, 16384, timeout=timeout_ms))
+  except usb1.USBTimeoutError:
+    return st, overflow
+
+  records, overflow = unpack_flexray_records(overflow + raw)
+  now = time.monotonic()
+  for frame_id, _source, cycle, payload in records:
+    if frame_id == 72 and len(payload) >= 9:
+      st.cycle = cycle
+      st.seen_72 = True
+      st.last_rx_monotonic = now
+    elif frame_id == 96 and len(payload) >= 4:
+      st.cycle = cycle
+      st.phase = payload[0]
+      st.b1 = payload[1]
+      st.b2 = payload[2]
+      st.b3 = payload[3]
+      st.seen_96 = True
+      st.last_rx_monotonic = now
+  return st, overflow
+
+
+def send_lat_override_pair(dev: RawUsbDevice, tx72: bytes, tx96: bytes, base: int = 0x01) -> None:
+  pkt72 = pack_override(72, base, bytes([base]) + tx72[:9])
+  pkt96 = pack_override(96, base, bytes([base]) + tx96[:9])
+  dev.handle.bulkWrite(USB_WRITE_EP, pkt72 + pkt96, timeout=10)
+
+
+def send_lat_override_quad(dev: RawUsbDevice, tx112: bytes, tx116: bytes, tx72: bytes, tx96: bytes, base: int = 0x01) -> None:
+  pkt112 = pack_override(112, base, bytes([base]) + tx112[:9])
+  pkt116 = pack_override(116, base, bytes([base]) + tx116[:9])
+  pkt72 = pack_override(72, base, bytes([base]) + tx72[:9])
+  pkt96 = pack_override(96, base, bytes([base]) + tx96[:9])
+  dev.handle.bulkWrite(USB_WRITE_EP, pkt112 + pkt116 + pkt72 + pkt96, timeout=10)
+
+
+def main() -> int:
+  ap = argparse.ArgumentParser(description='BMW i3 direct lateral FlexRay sweep tool')
+  ap.add_argument('--serial', default='')
+  ap.add_argument('--rate-deg-per-sec', type=float, default=1.0)
+  ap.add_argument('--max-angle-deg', type=float, default=90.0)
+  ap.add_argument('--return-angle-deg', type=float, default=0.0,
+                  help='angle after sweep-back; default returns leftwards back to center')
+  ap.add_argument('--cycles', type=int, default=2,
+                  help='number of complete right->left sweep cycles before clean stop')
+  ap.add_argument('--hz', type=float, default=20.0)
+  ap.add_argument('--max-b1-delta', type=int, default=48,
+                  help='fallback direct delta on b1 for unsupported phases')
+  ap.add_argument('--bus-idle-timeout', type=float, default=0.5,
+                  help='pause injection if no live 72/96 traffic is seen for this many seconds')
+  ap.add_argument('--static-family', choices=sorted(STATIC_TJA_FAMILIES.keys()), default='',
+                  help='use a fixed stock TJA 72/96 family instead of b1 sweep shaping')
+  ap.add_argument('--with-context', action='store_true',
+                  help='when used with --static-family, also send stock-like 112/116 context frames (requires matching firmware rules)')
+  ap.add_argument('--run', action='store_true', help='actually transmit; default is dry-run')
+  args = ap.parse_args()
+
+  dev = open_picoflex_device(args.serial)
+  try:
+    print('connected picoflex:', dev.serial)
+    st = recv_until_lat_ready(dev)
+    print(f'live lat: phase={st.phase} b1={st.b1} b2={st.b2} b3={st.b3} cycle={st.cycle}')
+
+    period = 1.0 / max(args.hz, 1.0)
+    t_up = abs(args.max_angle_deg) / max(args.rate_deg_per_sec, 1e-6)
+    t_down = abs(args.max_angle_deg - args.return_angle_deg) / max(args.rate_deg_per_sec, 1e-6)
+    cycle_total = t_up + t_down
+    total = cycle_total * max(args.cycles, 1)
+    steps = int(math.ceil(total / period)) + 1
+    cnt = 0
+
+    print(f'profile: {max(args.cycles, 1)} cycles of 0 -> +{args.max_angle_deg:.1f} deg @ {args.rate_deg_per_sec:.2f} deg/s, then back to {args.return_angle_deg:.1f} deg')
+    if not args.run:
+      print('dry-run only; add --run to transmit')
+
+    start = time.monotonic()
+    overflow = b''
+    for i in range(steps):
+      st, overflow = poll_lat_state(dev, st, overflow, timeout_ms=0)
+      t = i * period
+      cycle_t = min(cycle_total, t % cycle_total)
+      angle = profile_angle(cycle_t, args.rate_deg_per_sec, args.max_angle_deg, args.return_angle_deg)
+      if args.static_family:
+        tx72, tx96 = build_static_family_frames(args.static_family, st.phase, cnt)
+        b1 = tx96[1]
+        tx112 = tx116 = None
+        if args.with_context:
+          tx112, tx116 = build_static_context_frames(args.static_family, st.phase)
+      else:
+        b1 = target_b1_for_angle(st.phase, angle, st.b1, args.max_b1_delta)
+        tx72 = build_frame72(st.phase, cnt)
+        tx96 = build_frame96(st.phase, b1, st.b2, st.b3)
+        tx112 = tx116 = None
+      idle = (time.monotonic() - st.last_rx_monotonic) > args.bus_idle_timeout
+      family_name = args.static_family or 'dynamic'
+      ctx_hex = ''
+      if tx112 is not None and tx116 is not None:
+        ctx_hex = f' tx112={tx112[:9].hex()} tx116={tx116[:9].hex()}'
+      print(f't={t:6.2f}s angle={angle:7.2f} phase={st.phase:3d} b1={b1:3d} b2={st.b2:3d} b3={st.b3:3d} cnt={cnt:02d} idle={int(idle)} family={family_name} tx72={tx72[:9].hex()} tx96={tx96[:9].hex()}{ctx_hex}')
+      if args.run and not idle:
+        if tx112 is not None and tx116 is not None:
+          send_lat_override_quad(dev, tx112, tx116, tx72, tx96)
+        else:
+          send_lat_override_pair(dev, tx72, tx96)
+      cnt = (cnt + 1) & 0xF
+      next_t = start + (i + 1) * period
+      sleep_s = next_t - time.monotonic()
+      if sleep_s > 0:
+        time.sleep(sleep_s)
+  finally:
+    dev.close()
+
+  return 0
+
+
+if __name__ == '__main__':
+  raise SystemExit(main())

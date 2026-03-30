@@ -25,7 +25,7 @@ from openpilot.system.version import get_build_metadata
 from openpilot.system.hardware import HARDWARE
 
 from openpilot.sunnypilot.mads.mads import ModularAssistiveDrivingSystem
-from openpilot.sunnypilot.pc_runtime.helpers import is_pc_webcam_runtime, get_selfdrived_init_timeout, get_selfdrived_packets
+from openpilot.sunnypilot.pc_runtime.helpers import get_selfdrived_init_timeout, get_selfdrived_packets
 from openpilot.sunnypilot import get_sanitize_int_param
 from openpilot.sunnypilot.selfdrive.car.car_specific import CarSpecificEventsSP
 from openpilot.sunnypilot.selfdrive.car.cruise_helpers import CruiseHelper
@@ -99,12 +99,11 @@ class SelfdriveD(CruiseHelper):
     if REPLAY:
       # no vipc in replay will make them ignored anyways
       ignore += ['roadCameraState', 'wideRoadCameraState']
-    if is_pc_webcam_runtime():
+    if PC:
       # PC webcam rigs don't provide clean stock-quality validity for these
-      # learned/location/helper topics in this custom setup. Exclude them from
-      # generic selfdrived health gating so they don't block engagement.
-      ignore += ['liveCalibration', 'livePose', 'liveDelay', 'liveParameters', 'liveTorqueParameters',
-                 'driverAssistance', 'longitudinalPlanSP', 'modelDataV2SP', 'alertDebug']
+      # learned/location helper topics, but the rest of the stack can still be
+      # exercised safely for integration testing.
+      ignore += ['livePose', 'liveDelay', 'liveParameters', 'liveTorqueParameters']
     self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'modelV2', 'liveCalibration',
                                    'carOutput', 'driverMonitoringState', 'longitudinalPlan', 'livePose', 'liveDelay',
                                    'managerState', 'liveParameters', 'radarState', 'liveTorqueParameters',
@@ -358,7 +357,7 @@ class SelfdriveD(CruiseHelper):
           self.events.add(EventName.cameraMalfunction)
         elif not self.sm.all_freq_ok(self.camera_packets):
           self.events.add(EventName.cameraFrameRate)
-    if not REPLAY and self.rk.lagging and not is_pc_webcam_runtime():
+    if not REPLAY and self.rk.lagging:
       self.events.add(EventName.selfdrivedLagging)
     if self.sm['radarState'].radarErrors.canError:
       self.events.add(EventName.canError)
@@ -398,9 +397,9 @@ class SelfdriveD(CruiseHelper):
     if not self.CP.notCar:
       if not self.sm['livePose'].posenetOK:
         self.events.add(EventName.posenetInvalid)
-      if not is_pc_webcam_runtime() and not self.sm['livePose'].inputsOK:
+      if not PC and not self.sm['livePose'].inputsOK:
         self.events.add(EventName.locationdTemporaryError)
-      if not is_pc_webcam_runtime() and not self.sm['liveParameters'].valid and cal_status == log.LiveCalibrationData.Status.calibrated and not TESTING_CLOSET and (not SIMULATION or REPLAY):
+      if not PC and not self.sm['liveParameters'].valid and cal_status == log.LiveCalibrationData.Status.calibrated and not TESTING_CLOSET and (not SIMULATION or REPLAY):
         self.events.add(EventName.paramsdTemporaryError)
 
     # conservative HW alert. if the data or frequency are off, locationd will throw an error

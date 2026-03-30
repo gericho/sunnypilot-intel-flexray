@@ -32,7 +32,7 @@ append_block() {
 export_default SP_DEVICE_TYPE PC
 export_default BIG 1
 export_default SCALE 0.4
-export_default NO_DM 0
+export_default NO_DM 1
 export_default UI_X 1488
 export_default UI_Y 0
 

@@ -100,11 +100,10 @@ class SelfdriveD(CruiseHelper):
       # no vipc in replay will make them ignored anyways
       ignore += ['roadCameraState', 'wideRoadCameraState']
     if is_pc_webcam_runtime():
-      # PC webcam rigs don't provide clean stock-quality validity for these
-      # learned/location/helper topics in this custom setup. Exclude them from
-      # generic selfdrived health gating so they don't block engagement.
-      ignore += ['liveCalibration', 'livePose', 'liveDelay', 'liveParameters', 'liveTorqueParameters',
-                 'driverAssistance', 'longitudinalPlanSP', 'modelDataV2SP', 'alertDebug']
+      # is_pc_webcam_runtime() webcam rigs don't provide clean stock-quality validity for these
+      # learned/location helper topics, but the rest of the stack can still be
+      # exercised safely for integration testing.
+      ignore += ['livePose', 'liveDelay', 'liveParameters', 'liveTorqueParameters']
     self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'modelV2', 'liveCalibration',
                                    'carOutput', 'driverMonitoringState', 'longitudinalPlan', 'livePose', 'liveDelay',
                                    'managerState', 'liveParameters', 'radarState', 'liveTorqueParameters',

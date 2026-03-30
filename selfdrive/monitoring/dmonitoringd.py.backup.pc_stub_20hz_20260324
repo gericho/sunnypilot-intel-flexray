@@ -4,12 +4,10 @@ from openpilot.common.params import Params
 from openpilot.common.realtime import config_realtime_process
 from openpilot.system.hardware import PC
 from openpilot.selfdrive.monitoring.helpers import DriverMonitoring
-from openpilot.common.realtime import Ratekeeper
 
 
 def dmonitoringd_thread():
   config_realtime_process([0, 1, 2, 3], 5)
-  rk = Ratekeeper(20, print_delay_threshold=None)
 
   params = Params()
   pm = messaging.PubMaster(['driverMonitoringState'])
@@ -27,7 +25,6 @@ def dmonitoringd_thread():
       # the stack still expects driverMonitoringState to be alive.
       if PC:
         pm.send('driverMonitoringState', DM.get_state_packet(valid=True))
-        rk.keep_time()
       continue
 
     valid = sm.all_checks()
@@ -50,7 +47,6 @@ def dmonitoringd_thread():
      DM.wheelpos.prob_offseter.filtered_stat.n > DM.settings._WHEELPOS_FILTER_MIN_COUNT and
      DM.wheel_on_right == (DM.wheelpos.prob_offseter.filtered_stat.M > DM.settings._WHEELPOS_THRESHOLD)):
       params.put_bool_nonblocking("IsRhdDetected", DM.wheel_on_right)
-    rk.keep_time()
 
 def main():
   dmonitoringd_thread()
