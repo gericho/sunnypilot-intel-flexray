@@ -1,3 +1,17 @@
+# Update 2026-04-03
+
+Small summary of the latest changes:
+- BMW i3 PC FlexRay bring-up refined around the SAS-side `60 -> 72` model instead of treating lateral as a generic analog payload
+- `opendbc/car/bmw_i3/carstate.py` now keeps `cruiseState.available` from stock helpers but forces `cruiseState.enabled = False` for the `pcmCruise = False` button-based PC port, removing the persistent `cruiseMismatch` failure mode
+- `selfdrive/selfdrived/selfdrived.py` now ignores `noGps` on the PC webcam runtime; this setup has no GPS attached and should not be blocked by the standard on-road GPS gate
+- BMW i3 fingerprint coverage was expanded again to include the new `src1-only` startup variant observed in recent realdata logs
+- `opendbc/car/bmw_i3/carcontroller.py` and `carstate.py` were tightened around the current FlexRay lateral bring-up model:
+  - `60/72` phase alignment is tracked explicitly
+  - modern TJA-like context is accepted beyond the old narrow `135` family gate
+  - lateral TX debug/readiness fields now reflect the actual gate used before sending `72`
+- local status memory for the current i3 lateral/FlexRay bring-up was saved in `notes/bmw_i3_lateral_status_2026-04-03.md`
+- current conclusion from recent routes: the stock SAS `60/72` stream is coherent, but in the routes inspected so far openpilot had still not reached a true `enabled/latActive` state, so lateral TX was not yet genuinely exercised on-bus
+
 # Update 2026-03-24
 
 Small summary of today's changes:
