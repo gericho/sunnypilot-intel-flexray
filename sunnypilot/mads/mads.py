@@ -8,6 +8,7 @@ See the LICENSE.md file in the root directory for more details.
 from cereal import log, custom
 
 from opendbc.car import structs
+from opendbc.car.bmw_i3.values import CAR as BMWI3_CAR
 from opendbc.car.hyundai.values import HyundaiFlags
 from openpilot.common.params import Params
 from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param, MADS_NO_ACC_MAIN_BUTTON
@@ -156,6 +157,8 @@ class ModularAssistiveDrivingSystem:
 
     for be in CS.buttonEvents:
       if be.type == ButtonType.cancel:
+        if self.CP.carFingerprint == BMWI3_CAR.BMW_I3_EXPERIMENTAL:
+          continue
         if not self.selfdrive.enabled and self.selfdrive.enabled_prev:
           self.events_sp.add(EventNameSP.manualLongitudinalRequired)
       if be.type == ButtonType.lkas and be.pressed and (CS.cruiseState.available or self.allow_always):

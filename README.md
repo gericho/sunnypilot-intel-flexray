@@ -1,3 +1,15 @@
+# Update 2026-04-05
+
+Small summary of the latest changes:
+- BMW i3 FlexRay-only bring-up was tightened again around the real bus split: SAS-side stock lateral frames (`60/72/96`) are now parsed from `src0`, while vehicle-side helper frames (including the legacy stalk helpers on `97`) stay on `src1`
+- this fixes the key lateral parsing bug found on route `0000002a--e7362cf0b9`: openpilot was already engaged and sending frame `72`, but the builder was seeing `phase=0` from the wrong bus and was transmitting an all-zero `72` payload instead of a stock-like control branch
+- `sunnypilot/selfdrive/controls/controlsd_ext.py` now ties i3 lateral activation directly to the real `selfdriveState.active` path instead of the generic MADS latch, which was keeping lateral logically active after disable transitions
+- the i3 lateral TX readiness gate in `opendbc/car/bmw_i3/carcontroller.py` was simplified to the minimum useful conditions (`CC.enabled`, `CC.latActive`, and `60/72` phase agreement) so we can distinguish payload bugs from over-gating
+- the legacy FlexRay TJA button debounce/toggle path in `opendbc/car/bmw_i3/carstate.py` was reworked repeatedly during the day; current route conclusion is that the latest `97` raw families still need one more pass for stable enable/disable, but the main blocker for “no steering on bus” was the wrong-bus `60/72` parser bug
+- current state from recent routes:
+  - latest `fb/fc/fd` logs never reached a real engage and show only blocker events
+  - route `0000002a--e7362cf0b9` remains the key proof route: engagement is real there, `sendcan` includes `72`, and the remaining issue is the semantic correctness of the transmitted `72` payload
+
 # Update 2026-04-03
 
 Small summary of the latest changes:

@@ -56,14 +56,14 @@ class ControlsExt(ModelStateBase):
       self._param_update_time = time.monotonic()
 
   def get_lat_active(self, sm: messaging.SubMaster) -> bool:
-    # BMW i3 mimic-long branch must run in true long-only mode. Leaving the
-    # generic lateral activation path alive causes angle-control saturation and
-    # "Turn Exceeds Steering Limit" even with lateral TX disabled.
-    if self.CP.carFingerprint == BMWI3_CAR.BMW_I3_EXPERIMENTAL and self.CP.openpilotLongitudinalControl:
-      return False
-
     if self.blinker_pause_lateral.update(sm['carState']):
       return False
+
+    # i3 FlexRay bring-up: tie lateral strictly to the real selfdrive state.
+    # The generic MADS latch can stay active after a single engage and keep
+    # reporting lateral "on" even when selfdrive has already disabled.
+    if self.CP.carFingerprint == BMWI3_CAR.BMW_I3_EXPERIMENTAL:
+      return bool(sm['selfdriveState'].active)
 
     ss_sp = sm['selfdriveStateSP']
     if ss_sp.mads.available:
