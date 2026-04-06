@@ -1,3 +1,21 @@
+# Update 2026-04-06
+
+Small summary of the latest changes:
+- BMW i3 lateral reverse work moved from “is anything transmitted?” to a stricter semantic comparison across all useful replays: desktop TJA route `00000016--8c7aacbbbc--0..4`, recent live routes `3a/3b/3c/3d/3e`, Pico injector counters, and the final bus payload after template overlay
+- comparison against the BMW FlexRay implementations from the `dynm` and `smnogar` repos confirmed that their `72` builders are SP2018-style direct-angle packets, while the i3 `72` remains phase-local and stock-orbit-like; the reusable part was the injector architecture, not the packet semantics
+- the main residual bug was identified as a **phase mismatch** between the host-generated `72` and the cached stock `72` template that the Pico actually injected:
+  - transport was already good (`submit/accept/fire` all moved)
+  - but host `72.byte0` phase matched the stock template phase in only a small minority of replayed injections
+  - because the i3 command nibble is phase-local, this meant semantically valid nibble choices were being applied to the wrong template phase on-bus
+- `opendbc/car/bmw_i3/carcontroller.py` was updated so the host lateral command predicts the **next** usable stock control phase (`+4`) and computes the nibble against that predicted command phase, while keeping the command bounded and sign-aware around the stock nibble
+- `pico-flexray/src/flexray_fowarder_with_injector.c` was updated so frame `72` overrides carry the expected phase byte and are only consumed when the cached stock template phase matches exactly; this fixes semantic desynchronization without changing trigger cadence, DMA flow, or FlexRay timing behavior
+- replay-backed simulation of the new policy shows the right direction:
+  - exact phase matching with the old host phase would have yielded only a handful of valid fires
+  - exact phase matching with the new `+4` host phase yields a healthy number of phase-correct injections across the key replay set
+- current conclusion:
+  - the remaining BMW i3 lateral bottleneck is no longer generic transport or engagement
+  - it was narrowed to phase-correct semantic injection of `72`, and the current code now reflects that model
+
 # Update 2026-04-05
 
 Small summary of the latest changes:
