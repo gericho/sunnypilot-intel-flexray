@@ -1,6 +1,34 @@
 # Update 2026-04-06
 
 Small summary of the latest changes:
+- BMW i3 steering-angle reverse work was tightened against the `dynm` BMW SP2018 reference one frame at a time instead of continuing with mixed FlexRay proxies
+- the local i3 port was confirmed already aligned with `dynm` on:
+  - `46 wheel_speed`
+  - `49 steer_torque`
+  - including the same demux rule on frame `49` (`cycle/mux == 0`)
+- the main remaining mismatch was the EPS angle source:
+  - `dynm` uses `BO_ 51 EPS_Angle`
+  - the local i3 port had still been using `56` as primary and `44` as fallback
+- a route with a taped steering-wheel marker (`0000003f--9f8cebeeb7--0/1`) was used to validate the temporal structure of frame `51`
+- after replay inspection and user-confirmed wheel motion order, frame `51` was accepted as the new primary FlexRay EPS angle source for the i3 port:
+  - same decode model as `dynm`
+  - `cycle/mux == 0`
+  - `raw16 = u16le(bytes 3:4)`
+  - `angle_deg = raw * 0.0439453125 - 1440.0`
+- `opendbc/dbc/bmw_i3_flexray_custom_v3.dbc` now exposes:
+  - `BO_ 51 EPS_ANGLE`
+  - `EPS_STEERING_ANGLE_BMW`
+- `opendbc/car/bmw_i3/carstate.py` now uses frame `51` as the only production FlexRay `steeringAngleDeg` source when PT-CAN steering is absent
+- former FlexRay angle candidates remain only as debug/support:
+  - `56` secondary debug/support
+  - `44` legacy debug only
+- current conclusion:
+  - the i3 port is now aligned with the `dynm` reference not only on wheel speed and driver torque, but also on the promoted EPS-angle frame definition itself
+  - the next remaining question is behavioral validation of this `51` feedback inside live lateral control, not DBC alignment
+
+# Update 2026-04-06
+
+Small summary of the latest changes:
 - BMW i3 lateral reverse work moved from “is anything transmitted?” to a stricter semantic comparison across all useful replays: desktop TJA route `00000016--8c7aacbbbc--0..4`, recent live routes `3a/3b/3c/3d/3e`, Pico injector counters, and the final bus payload after template overlay
 - comparison against the BMW FlexRay implementations from the `dynm` and `smnogar` repos confirmed that their `72` builders are SP2018-style direct-angle packets, while the i3 `72` remains phase-local and stock-orbit-like; the reusable part was the injector architecture, not the packet semantics
 - the main residual bug was identified as a **phase mismatch** between the host-generated `72` and the cached stock `72` template that the Pico actually injected:
