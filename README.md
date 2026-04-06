@@ -15,6 +15,13 @@ Small summary of the latest changes:
   - `cycle/mux == 0`
   - `raw16 = u16le(bytes 3:4)`
   - `angle_deg = raw * 0.0439453125 - 1440.0`
+- further cleanup against the `dynm` reference tightened the runtime set of active FlexRay signals:
+  - frame `40` was promoted from `DRIVE_STATE_EXPERIMENTAL` to production `DRIVE_STATE`
+  - frame `55` was kept as the only production vehicle-speed source
+  - frame `46` was removed from the active runtime path after route-wide comparison on `0000003d--4035c308e0--0..2` showed that it does not track frame `55` closely enough on the i3
+- the UI/cluster speed path was also aligned with live behavior:
+  - `vEgoRaw` now comes only from frame `55`
+  - `vEgoCluster` keeps a `+1 km/h` offset because the cluster consistently reads about `1 km/h` higher than the raw FlexRay vehicle-speed value
 - `opendbc/dbc/bmw_i3_flexray_custom_v3.dbc` now exposes:
   - `BO_ 51 EPS_ANGLE`
   - `EPS_STEERING_ANGLE_BMW`
@@ -22,8 +29,11 @@ Small summary of the latest changes:
 - former FlexRay angle candidates remain only as debug/support:
   - `56` secondary debug/support
   - `44` legacy debug only
+- frame `56` was re-checked as a possible yaw-rate source, but live replay on the latest route showed that the currently decoded value is not physically plausible enough to publish into openpilot:
+  - it remains available in the DBC and raw helper fields
+  - but it is no longer forwarded to `CarState.yawRate`
 - current conclusion:
-  - the i3 port is now aligned with the `dynm` reference not only on wheel speed and driver torque, but also on the promoted EPS-angle frame definition itself
+  - the i3 port is now aligned with the `dynm` reference on the active production steering signals that matter most: `40`, `49`, `51`, and `55`
   - the next remaining question is behavioral validation of this `51` feedback inside live lateral control, not DBC alignment
 
 # Update 2026-04-06
