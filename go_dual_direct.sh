@@ -4,6 +4,21 @@ set -e
 cd ~/sunnypilot
 source .venv/bin/activate
 
+PERSISTENT_CFG="${HOME}/.config/sunnypilot/go_dual_direct.env"
+if [ -f "${PERSISTENT_CFG}" ]; then
+  # Optional persistent launcher overrides.
+  # Example:
+  #   ENABLE_DRIVER_CAM=1
+  #   DRIVER_CAM=4
+  #   DRIVER_W=352
+  #   DRIVER_H=288
+  #   DRIVER_FPS=20
+  #   DRIVER_FOURCC=MJPG
+  #   DRIVER_AUTO_EXPOSURE=1
+  # shellcheck disable=SC1090
+  source "${PERSISTENT_CFG}"
+fi
+
 unset BLOCK
 unset LOG_ONLY_MODE
 unset WEBCAM_DIRECT_SPLIT
@@ -162,6 +177,7 @@ export_default BMW_I3_SHADOW_LOGGER_INTERVAL 0.2
 export_default BMW_I3_SHADOW_LOGGER_OUT /tmp/bmw_i3_shadow/rlog.jsonl
 export_default BMW_I3_SHADOW_LOGGER_ERR /tmp/bmw_i3_shadow_logger.stderr
 export_default BMW_I3_SHADOW_LOGGER_PID /tmp/bmw_i3_shadow_logger.pid
+export_default ENABLE_DRIVER_CAM 0
 
 if [ "${WEBCAM_SPLIT_ENABLE}" = "1" ] && [ "${WEBCAM_DIRECT_SPLIT:-0}" != "1" ]; then
   src_dev="/dev/video${WEBCAM_SPLIT_SOURCE_CAM}"
@@ -213,18 +229,20 @@ else
   rm -f /tmp/disable_qcamera
 fi
 
-export_default DRIVER_CAM 4
-export_default DRIVER_W 352
-export_default DRIVER_H 288
-export_default DRIVER_FPS 20
-export_default DRIVER_FOURCC MJPG
-
-if [ -n "${DRIVER_CAM:-}" ]; then
-  ./.venv/bin/python - <<'PY'
-from openpilot.common.params import Params
-Params().put_bool("RecordFront", True)
-print("RecordFront enabled")
-PY
+if [ "${ENABLE_DRIVER_CAM}" = "1" ]; then
+  export_default DRIVER_CAM 4
+  export_default DRIVER_W 352
+  export_default DRIVER_H 288
+  export_default DRIVER_FPS 20
+  export_default DRIVER_FOURCC MJPG
+  export_default DRIVER_AUTO_EXPOSURE 1
+else
+  unset DRIVER_CAM
+  unset DRIVER_W
+  unset DRIVER_H
+  unset DRIVER_FPS
+  unset DRIVER_FOURCC
+  unset DRIVER_AUTO_EXPOSURE
 fi
 
 BLOCK_LIST=""
@@ -258,6 +276,12 @@ fi
 if [ -n "$BLOCK_LIST" ]; then
   export BLOCK="$BLOCK_LIST"
 fi
+
+python - <<'PYCFG'
+from openpilot.common.params import Params
+import os
+Params().put_bool("RecordFront", os.getenv("ENABLE_DRIVER_CAM", "0") == "1")
+PYCFG
 
 if [ "${ENABLE_BMW_I3_SHADOW_LOGGER}" = "1" ]; then
   pkill -f "scripts/bmw_i3_shadow_logger.py" >/dev/null 2>&1 || true

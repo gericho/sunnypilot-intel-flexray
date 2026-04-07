@@ -489,6 +489,16 @@ def latest(sock):
   return msgs[-1] if msgs else None
 
 
+def read_picoflex_diag(msg):
+  if msg is None:
+    return None
+  try:
+    raw = bytes(msg.customReservedRawData0)
+    return json.loads(raw.decode("utf-8"))
+  except Exception:
+    return None
+
+
 def ema(prev, value, alpha=0.25):
   if value is None:
     return prev
@@ -728,6 +738,7 @@ def main() -> None:
   longplan_sp_sock = messaging.sub_sock("longitudinalPlanSP", addr=args.addr, conflate=True)
   carcontrol_sp_sock = messaging.sub_sock("carControlSP", addr=args.addr, conflate=True)
   sendcan_sock = messaging.sub_sock("sendcan", addr=args.addr, conflate=True)
+  picoflex_diag_sock = messaging.sub_sock("customReservedRawData0", addr=args.addr, conflate=True)
 
   cs = None
   controls_state = None
@@ -768,7 +779,6 @@ def main() -> None:
   last_write = 0.0
   out_file = None
   out_path = None
-
   try:
     while True:
       m = latest(carstate_sock)
@@ -956,6 +966,8 @@ def main() -> None:
           host_override_lat_96 = dat.hex()
           host_override_lat_96_base = dat[0]
 
+      fw_diag = read_picoflex_diag(latest(picoflex_diag_sock))
+
       row = {
         "ts_wall": time.time(),
         "ts_mono": now,
@@ -1036,6 +1048,8 @@ def main() -> None:
         "sendcan_lat_72": lat_send_72,
         "sendcan_lat_96": lat_send_96,
       }
+      if fw_diag is not None:
+        row.update(fw_diag)
       if controls_state is not None:
         row.update({
           "op_long_control_state": str(controls_state.longControlState),

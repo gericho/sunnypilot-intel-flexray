@@ -79,6 +79,36 @@ Small summary of the latest changes:
 
 # Update 2026-04-06
 
+# Update 2026-04-07
+
+Small summary of today's changes:
+- BMW i3 lateral TX bring-up was finalized around the `96` path instead of the old `72` path:
+  - `opendbc/car/bmw_i3/carcontroller.py` now emits only frame `96`
+  - the temporary hard clamp was removed again after bench/runtime verification
+  - `opendbc/dbc/bmw_i3_flexray_custom_v3.dbc` no longer carries the old `BO_72`
+- Pico injector and diagnostics were cleaned up to match the `96`-only runtime:
+  - `pico-flexray/src/flexray_injector_rules.h` now contains only the active `0x3c -> 0x60` trigger rule
+  - firmware/runtime counters were renamed to `target96_cache_count` / `override96_pop_hit_count`
+  - the Pico firmware was rebuilt and reflashed after the cleanup
+- replay/webcam/runtime support was tightened:
+  - replay camera lookup was fixed so segment changes no longer reuse the wrong video frame
+  - `go_dual_direct.sh` gained a persistent optional `ENABLE_DRIVER_CAM` toggle via `~/.config/sunnypilot/go_dual_direct.env`
+  - the extra driver camera can now be disabled cleanly without leaving route-recording residue behind
+- the `no panda` regression was traced to a same-day change in `scripts/bmw_i3_shadow_logger.py`:
+  - direct USB access to the Pico from the shadow logger caused `LIBUSB_ERROR_BUSY`
+  - this blocked `pandad` from claiming the device and produced the false on-screen `no panda`
+  - the shadow logger no longer opens the Pico directly
+- Pico injector counters are now sourced the right way:
+  - `selfdrive/pandad/pandad.cc` reads injector diagnostics from the Pico
+  - those diagnostics are published onto `customReservedRawData0`
+  - `scripts/bmw_i3_shadow_logger.py` subscribes to that channel and writes the `fw_*` fields into `bmw_i3_shadow/rlog.jsonl`
+- current `96` conclusion after checking all afternoon routes with real `sendcan 96` traffic:
+  - the host-side `96` packets are consistently `10` bytes long with `base=1`
+  - `pandad` converts them into the exact `[crc][9-byte slice]` form expected by `injector_submit_override()`
+  - so the `96` transport format is correct; any remaining lateral issue is downstream of CRC/length/base validity
+
+# Update 2026-04-06
+
 Small summary of the latest changes:
 - BMW i3 lateral reverse work moved from “is anything transmitted?” to a stricter semantic comparison across all useful replays: desktop TJA route `00000016--8c7aacbbbc--0..4`, recent live routes `3a/3b/3c/3d/3e`, Pico injector counters, and the final bus payload after template overlay
 - comparison against the BMW FlexRay implementations from the `dynm` and `smnogar` repos confirmed that their `72` builders are SP2018-style direct-angle packets, while the i3 `72` remains phase-local and stock-orbit-like; the reusable part was the injector architecture, not the packet semantics

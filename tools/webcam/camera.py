@@ -137,6 +137,7 @@ class Camera:
     self._manual_exposure_default = int(os.getenv("WEBCAM_MANUAL_EXPOSURE", "24"))
     self._manual_gain_default = int(os.getenv("WEBCAM_MANUAL_GAIN", "0"))
     self._dynamic_exposure_enabled = self._is_main_camera and _env_flag("WEBCAM_DYNAMIC_EXPOSURE", True)
+    self._driver_auto_exposure = cam_type_state == "driverCameraState" and _env_flag("DRIVER_AUTO_EXPOSURE", False)
     self._dynamic_exposure_min = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MIN", "8"))
     self._dynamic_exposure_max = int(os.getenv("WEBCAM_DYNAMIC_EXPOSURE_MAX", "1500"))
     initial_exposure_env = os.getenv("WEBCAM_DYNAMIC_EXPOSURE_INITIAL")
@@ -213,12 +214,20 @@ class Camera:
       ["v4l2-ctl", "-d", self._control_device_path, f"--set-parm={fps}"],
       ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=zoom_absolute=100"],
       ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=power_line_frequency=1"],
-      ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=auto_exposure=1"],
-      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=exposure_time_absolute={self._manual_exposure_default}"],
       ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=backlight_compensation=0"],
-      ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=gain={self._manual_gain_default}"],
       ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=focus_automatic_continuous=0"],
     ]
+    if self._driver_auto_exposure:
+      cmds += [
+        ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=auto_exposure=3"],
+        ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=exposure_dynamic_framerate=0"],
+      ]
+    else:
+      cmds += [
+        ["v4l2-ctl", "-d", self._control_device_path, "--set-ctrl=auto_exposure=1"],
+        ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=exposure_time_absolute={self._manual_exposure_default}"],
+        ["v4l2-ctl", "-d", self._control_device_path, f"--set-ctrl=gain={self._manual_gain_default}"],
+      ]
     brio_fov = os.getenv("WEBCAM_BRIO_FOV")
     if brio_fov and self._is_main_camera:
       _set_brio_fov(self._control_device_path, brio_fov)
