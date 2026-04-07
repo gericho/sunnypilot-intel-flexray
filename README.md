@@ -29,10 +29,15 @@ Small summary of the latest changes:
   - `96.byte0` = phase
   - `96.byte1` / `96.byte2` = phase-local command payload
   - `264` = support/intensity-like helper
+- with that result, the active draft TX path was simplified:
+  - live runtime no longer builds or injects `72`
+  - `carstate.py` now treats `96` as the active SAS-side lateral command/template source
+  - `carcontroller.py` now emits a stock-like `96` payload draft by copying the live `96` family and only nudging the phase-local command bytes (`b1`, and `b2` when support medians exist)
+  - the Pico injector was switched from `60 -> 72` to `60 -> 96` and now replaces the full 9-byte `96` payload without trying to apply the old `72` E2E patch logic
 - current conclusion:
   - `401` is the cleanest strict reference for `managed` stock steering
   - `06` expands the search space with a second valid managed family at much larger steering angles
-  - the main remaining reverse task is no longer “which frame carries the command?”, but “how to map phase-local `96` payloads into requested steering angle within each managed family”
+  - the main remaining reverse task is no longer “which frame carries the command?”, but “how to calibrate `96` phase-local payloads into a cleaner OEM-like steering request across managed families”
 
 # Update 2026-04-06
 
