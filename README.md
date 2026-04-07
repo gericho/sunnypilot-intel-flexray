@@ -1,3 +1,26 @@
+# Update 2026-04-07
+
+Small summary of the latest changes:
+- BMW i3 stock-TJA state detection was re-derived from raw `src0` FlexRay on route `00000401--75b081dc8a--0..1` instead of continuing to rely on the older broad `acc_family` / `authority_like` heuristics
+- the new practical managed-window rule is intentionally minimal and route-grounded:
+  - `96.byte3 == 0xE0`
+  - `135.byte7 == 0x32`
+- on route `00000401--75b081dc8a--0..1` this isolates the stock steering-managed window as:
+  - entry at `01:01.054`
+  - exit at `01:44.446`
+- representative raw packets at the managed boundaries are:
+  - entry:
+    - `96 = 00b1f4e0ffffffffff`
+    - `135 = 18ccf72628e2603206`
+  - exit:
+    - `96 = 08d4f221ffffffffff`
+    - `135 = 38c9f72228e2603206`
+- an additional supporting observation from the same managed window is that `131.byte5` tends to stay at `0x80`, but it is not required for the new gate
+- the same new rule does not trigger on route `00000006--e6a3e58043--0..4`, which is useful because it confirms that this gate is materially stricter than the old broad context rules
+- current conclusion:
+  - `401` is now the cleanest reference route for stock BMW i3 managed-steering reverse work
+  - future SAS-command analysis should be restricted to this new managed window first, before trying to generalize to other routes
+
 # Update 2026-04-06
 
 Small summary of the latest changes:
