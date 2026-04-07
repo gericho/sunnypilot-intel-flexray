@@ -213,10 +213,19 @@ else
   rm -f /tmp/disable_qcamera
 fi
 
-export_default DRIVER_W 640
-export_default DRIVER_H 480
+export_default DRIVER_CAM 4
+export_default DRIVER_W 352
+export_default DRIVER_H 288
 export_default DRIVER_FPS 20
-export_default DRIVER_FOURCC YUYV
+export_default DRIVER_FOURCC MJPG
+
+if [ -n "${DRIVER_CAM:-}" ]; then
+  ./.venv/bin/python - <<'PY'
+from openpilot.common.params import Params
+Params().put_bool("RecordFront", True)
+print("RecordFront enabled")
+PY
+fi
 
 BLOCK_LIST=""
 

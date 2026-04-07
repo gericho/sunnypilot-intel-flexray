@@ -23,6 +23,7 @@ protected:
     VisionStreamType stream_type;
     int width;
     int height;
+    int last_segment_id = -1;
     std::thread thread;
     SafeQueue<std::pair<FrameReader*, const Event *>> queue;
     std::set<VisionBuf *> cached_buf;

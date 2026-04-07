@@ -82,13 +82,18 @@ void CameraServer::cameraThread(Camera &cam) {
 }
 
 VisionBuf *CameraServer::getFrame(Camera &cam, FrameReader *fr, int32_t segment_id, uint32_t frame_id) {
+  if (cam.last_segment_id != segment_id) {
+    cam.cached_buf.clear();
+    cam.last_segment_id = segment_id;
+  }
+
   // Check if the frame is cached
   auto buf_it = std::find_if(cam.cached_buf.begin(), cam.cached_buf.end(),
                              [frame_id](VisionBuf *buf) { return buf->get_frame_id() == frame_id; });
   if (buf_it != cam.cached_buf.end()) return *buf_it;
 
   VisionBuf *yuv_buf = vipc_server_->get_buffer(cam.stream_type);
-  if (fr->get(segment_id, yuv_buf)) {
+  if (fr->get(frame_id, yuv_buf)) {
     yuv_buf->set_frame_id(frame_id);
     cam.cached_buf.insert(yuv_buf);
     return yuv_buf;

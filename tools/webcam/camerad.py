@@ -151,6 +151,7 @@ class Camerad:
     self._direct_pipe_fds = {}
 
     self.cameras = []
+    self.extra_cameras = []
     self.cameras_by_stream = {}
     self.stream_meta = {}
 
@@ -163,6 +164,14 @@ class Camerad:
       self.stream_meta[VisionStreamType.VISION_STREAM_WIDE_ROAD] = {"msg_name": "wideRoadCameraState", "width": wide_w, "height": wide_h}
       self.vipc_server.create_buffers(VisionStreamType.VISION_STREAM_ROAD, 20, road_w, road_h)
       self.vipc_server.create_buffers(VisionStreamType.VISION_STREAM_WIDE_ROAD, 20, wide_w, wide_h)
+      for c in CAMERAS:
+        if c.stream_type in self._shared_streams:
+          continue
+        cam_device = f"/dev/video{c.cam_id}" if platform.system() != "Darwin" else c.cam_id
+        cam = Camera(c.msg_name, c.stream_type, cam_device)
+        self.extra_cameras.append(cam)
+        self.cameras_by_stream[c.stream_type] = cam
+        self.vipc_server.create_buffers(c.stream_type, 20, cam.W, cam.H)
     else:
       for c in CAMERAS:
         cam_device = f"/dev/video{c.cam_id}" if platform.system() != "Darwin" else c.cam_id
@@ -341,6 +350,10 @@ class Camerad:
         t = threading.Thread(target=self.direct_reader_runner, args=(stream_type,))
         t.start()
         threads.append(t)
+      for cam in self.extra_cameras:
+        cam_thread = threading.Thread(target=self.camera_runner, args=(cam,))
+        cam_thread.start()
+        threads.append(cam_thread)
     else:
       for cam in self.cameras:
         cam_thread = threading.Thread(target=self.camera_runner, args=(cam,))
