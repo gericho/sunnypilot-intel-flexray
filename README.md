@@ -1,8 +1,8 @@
 # Update 2026-04-07
 
 Small summary of the latest changes:
-- BMW i3 stock-TJA state detection was re-derived from raw `src0` FlexRay on route `00000401--75b081dc8a--0..1` instead of continuing to rely on the older broad `acc_family` / `authority_like` heuristics
-- the new practical managed-window rule is intentionally minimal and route-grounded:
+- BMW i3 stock-TJA state detection was re-derived from raw `src0` FlexRay using route `00000401--75b081dc8a--0..1` as the clean reference instead of continuing to rely on the older broad `acc_family` / `authority_like` heuristics
+- the new strict `401` managed-window rule is intentionally minimal and route-grounded:
   - `96.byte3 == 0xE0`
   - `135.byte7 == 0x32`
 - on route `00000401--75b081dc8a--0..1` this isolates the stock steering-managed window as:
@@ -15,11 +15,24 @@ Small summary of the latest changes:
   - exit:
     - `96 = 08d4f221ffffffffff`
     - `135 = 38c9f72228e2603206`
-- an additional supporting observation from the same managed window is that `131.byte5` tends to stay at `0x80`, but it is not required for the new gate
-- the same new rule does not trigger on route `00000006--e6a3e58043--0..4`, which is useful because it confirms that this gate is materially stricter than the old broad context rules
+- a second managed family was then identified on route `00000006--e6a3e58043--0..4`; it is not `401`-like, but it is internally coherent and carries the same SAS command structure through a different state family:
+  - `96.byte3 == 0x21`
+  - `135[3:9] == 20e0e240e201` for `21.500 -> 86.446`
+  - `135[3:9] == 20e0e2408202` for `199.708 -> 241.887` and `279.485 -> 301.148`
+- wide-angle windows inside `00000006` confirmed that the large stock steering events live inside these `96...21` / `135...e201|8202` families rather than inside the stricter `401` family
+- full `src0` SAS scanning on the `401` managed window was widened beyond the usual known candidates and showed that:
+  - `72` behaves like envelope/phase, not the real command payload
+  - `96` remains the best primary SAS command candidate
+  - `264` is the strongest support/helper candidate outside `96`
+  - `135`, `267`, `269`, and `131` behave like state/gate helpers rather than the main steering-request payload
+- the current best practical model for stock lateral command is therefore:
+  - `96.byte0` = phase
+  - `96.byte1` / `96.byte2` = phase-local command payload
+  - `264` = support/intensity-like helper
 - current conclusion:
-  - `401` is now the cleanest reference route for stock BMW i3 managed-steering reverse work
-  - future SAS-command analysis should be restricted to this new managed window first, before trying to generalize to other routes
+  - `401` is the cleanest strict reference for `managed` stock steering
+  - `06` expands the search space with a second valid managed family at much larger steering angles
+  - the main remaining reverse task is no longer “which frame carries the command?”, but “how to map phase-local `96` payloads into requested steering angle within each managed family”
 
 # Update 2026-04-06
 
