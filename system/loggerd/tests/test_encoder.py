@@ -109,8 +109,10 @@ class TestEncoder:
         # Check encodeIdx
         if encode_idx_name is not None:
           rlog_path = f"{route_prefix_path}--{i}/rlog.zst"
-          msgs = [m for m in LogReader(rlog_path) if m.which() == encode_idx_name]
+          all_msgs = list(LogReader(rlog_path))
+          msgs = [m for m in all_msgs if m.which() == encode_idx_name]
           encode_msgs = [getattr(m, encode_idx_name) for m in msgs]
+          legacy_frame_msgs = [m for m in all_msgs if m.which() == "frame"]
 
           valid = [m.valid for m in msgs]
           segment_idxs = [m.segmentId for m in encode_msgs]
@@ -130,6 +132,10 @@ class TestEncoder:
           assert expected_frames * i == encode_idxs[0]
           first_frames.append(frame_idxs[0])
           assert len(set(encode_idxs)) == len(encode_idxs)
+
+          # New recordings must expose modern EncodeIdx services for replay/Cabana.
+          # A legacy-only "frame" stream breaks segment-aware video lookup.
+          assert not legacy_frame_msgs, f"segment #{i}: unexpected legacy frame events present in rlog"
 
       assert 1 == len(set(first_frames))
 
