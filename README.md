@@ -1,3 +1,35 @@
+# Update 2026-04-11
+
+Small summary of today's changes:
+- BMW i3 reverse work on FlexRay frame `0x83` was split cleanly into two conclusions:
+  - the old `54/59` longitudinal pair on `src1` was finally declassified as non-actuator body/BDC-side support and removed from the live code path
+  - frame `0x83` was tightened into a stock longitudinal target-speed-like interpretation on `src0`
+- the current `0x83` stock-long model is now documented and wired into the live port:
+  - `byte3` is treated as the low modular analog byte
+  - `byte4` is treated as the wrap/high byte
+  - combined:
+    - `u = byte3 + 256 * byte4`
+    - `target_speed_kph ~= 0.047815 * u - 1460.510`
+- `opendbc/car/bmw_i3/carstate.py` now exposes the combined stock-long helper directly from frame `131`:
+  - `stock_long_target_u_83`
+  - `stock_long_target_speed_est_kph_83`
+- `opendbc/car/bmw_i3/carcontroller.py` now uses the inverse mapping from openpilot target speed into the `0x83` payload bytes:
+  - `u ~= (v_target_kph + 1460.510) / 0.047815`
+  - `byte3 = low(u)`
+  - `byte4 = high(u)`
+- `opendbc/dbc/bmw_i3_flexray_custom_v3.dbc` was updated to reflect the same runtime model:
+  - `LONG_TARGET_U_83`
+  - `LONG_TARGET_SPEED_EST_83`
+- the old `54/59` path was then removed completely from the active port:
+  - deleted from the active DBC
+  - deleted from live `carstate.py`
+  - deleted from live `carcontroller.py`
+  - comments and helper references were rewritten so the active tree no longer describes `54/59` as longitudinal TX candidates
+- historical backup files were intentionally left untouched
+- current conclusion:
+  - the live BMW i3 port no longer carries the obsolete `54/59` stock-long reconstruction path
+  - the active working hypothesis for stock longitudinal target reconstruction is now entirely centered on `0x83.byte3/byte4`
+
 # Update 2026-04-07
 
 Small summary of the latest changes:
