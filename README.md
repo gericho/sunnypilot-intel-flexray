@@ -1,7 +1,12 @@
 # Update 2026-04-17
 
 BMW i3 dual-ECU FlexRay source mapping note:
-- physical MITM topology currently used for EDME/EPS analysis:
+- current physical MITM topology as of 2026-04-18:
+  - `FR1` = BDC side of the EPS link
+  - `FR2` = EPS ECU socket
+  - `FR3` = SAS ECU socket
+  - `FR4` = BDC side of the SAS bus
+- previous physical topology used for EDME/EPS route analysis:
   - `FR1` = BDC side of the EDME link
   - `FR2` = EDME socket
   - `FR3` = EPS socket
@@ -17,14 +22,15 @@ BMW i3 dual-ECU FlexRay source mapping note:
   - `src23` = `FR2 + FR3`
   - `src24` = `FR2 + FR4`
   - `src34` = `FR3 + FR4`
-- interpreted with the current wiring:
-  - `src1` = BDC on the EDME branch
-  - `src2` = EDME
-  - `src3` = EPS
-  - `src4` = BDC on the EPS branch
-  - `src14` = BDC EDME-side payload with the same frame ID confirmed on the BDC-to-EPS branch
-  - `src24` = EDME-side payload with the same frame ID confirmed on the BDC-to-EPS branch
-  - `src13` / `src23` = frame IDs touching the EPS side
+- interpreted with the current 2026-04-18 SAS/EPS wiring:
+  - `src1` = BDC on the EPS branch
+  - `src2` = EPS ECU
+  - `src3` = SAS ECU
+  - `src4` = BDC on the SAS branch
+  - `src14` = BDC EPS-side payload with the same frame ID confirmed on the BDC SAS-side branch
+  - `src24` = EPS ECU-side payload with the same frame ID confirmed on the BDC SAS-side branch
+  - `src13` = BDC EPS-side payload with the same frame ID confirmed on the SAS ECU branch
+  - `src23` = EPS ECU-side payload with the same frame ID confirmed on the SAS ECU branch
 - important firmware caveat:
   - current firmware streams/parses payloads primarily from `FR1/FR2`
   - `FR3/FR4` are used as source-confirmation/demux counters for the same frame ID, not as separate payload streams in the rlog
@@ -34,20 +40,22 @@ BMW i3 dual-ECU FlexRay source mapping note:
   - `U10` pin mapping is `TXD=GPIO23`, `TXEN=GPIO22`, `RXD=GPIO21`, with shared `BGE=GPIO2` and `STBN=GPIO3`
   - local `pico-flexray/src/main.c` still defines `TXD_FR_4_PIN` as `GPIO16`; for this PCB revision the interesting mismatch is specifically `FR4 TXD` and it should be treated as `GPIO23` before relying on FR4 injection
 - current analysis implications:
-  - `0x10D/src1` is BDC-side TJA state on the EDME branch
-  - `0x15/src14` remains a strong BDC cross-link candidate for steering target/command analysis because it is present on both BDC EDME-side and BDC EPS-side paths
-  - `0x33/src24` and `0x37/src24` are EDME-side payloads also confirmed on the BDC-to-EPS branch, consistent with steering/speed feedback families
-  - `0x83/src14` remains consistent with stock longitudinal target-like traffic propagated across BDC branches
+  - all route-58/59 candidate correlations were collected with EDME on `FR2`; with EPS ECU now on `FR2`, `src2/src24` semantics must be revalidated before using old trigger conclusions
+  - `0x10D/src1` remains a BDC-side TJA state candidate, but it is now BDC on the EPS branch rather than BDC on the EDME branch
+  - `0x15/src14` remains a strong BDC cross-link candidate if it is still visible on the new SAS/EPS wiring, but this must be reconfirmed from fresh rlog
+  - `0x33/src24` and `0x37/src24` were EDME-side payloads in route 58/59; after reconnecting they should be treated as EPS-ECU-side payload candidates until confirmed
+  - `0x83/src14` was consistent with stock longitudinal target-like traffic propagated across BDC branches; this should not be assumed unchanged with SAS replacing EDME
 - `0x44` torque-control bring-up state:
   - DBC frame `0x44` is now documented as `LAT_STOCK_TORQUE_CONTROL_44`
   - the selected local torque/control candidate remains `byte13..14` signed little-endian, with route 58/59 managed-TJA correlation against `0x33/src1` steering output around `+0.847/+0.916`
   - the I-CAN-hack `EPS_CONTROL` layout is also represented in the DBC for host-side payload construction: torque field at bit `88|12@1+`, factor `0.005`, offset `-10 Nm`
   - firmware injection follows the I-CAN-hack raw override model: trigger `0x42`, target `0x44`, cycle mask `0x01`, base `0`, replace offset `0`, replace length `16`
-  - on this BMW i3 dual-channel board the injection direction is intentionally `FR3`, i.e. toward EPS
+  - with the current 2026-04-18 wiring, an EPS-directed injection should target `FR2` (`EPS ECU socket`), not the previously used `FR3`
+  - after reconnecting SAS/EPS as `FR1=BDC-EPS`, `FR2=EPS-ECU`, `FR3=SAS-ECU`, `FR4=BDC-SAS`, the currently flashed `0x15` and `0x38` trigger rules are provisional because their triggers were inferred from EDME/EPS route 58/59 timing
   - `pandad` now preserves the leading byte for raw `0x44` FlexRay overrides instead of replacing it with the legacy `crc8(..., 0xF1)` guard byte
   - host/openpilot must build the full 17-byte `0x44` payload and precompute the two application CRCs: `byte1 = crc8(byte2..8, init 0xA4)` and `byte9 = crc8(byte10..16, init 0xDC)`
   - firmware updates only the FlexRay header cycle/count and frame CRC; it does not rewrite `0x44` application CRCs
-  - the firmware was built but not flashed; flashing is intentionally postponed until `0x15` angle/request analysis is closed
+  - the firmware was flashed on 2026-04-17 with raw override rules for `0x44`, `0x15`, and `0x38`; revalidate source/trigger behavior after any physical reconnection
 
 # Update 2026-04-11
 
